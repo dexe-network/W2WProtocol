@@ -9,7 +9,7 @@
     "ganache": "ganache-cli --gasLimit 100000000",
     "mainnet-deploy": "truffle deploy --network mainnet --reset",
     "ganache-mainnet": "ganache-cli --gasLimit 100000000 -f",
-    "ganache-mainnet-deploy": "truffle deploy --network mainnet --reset",
+    "mainnet-deploy": "truffle deploy --network mainnet --reset",
     "validate": "eslint test/*.js && solhint contracts/*.sol contracts/*/*.sol",
     "validate-js": "eslint test/*.js test/helpers/*.js --fix",
     "validate-sol": "solhint contracts/*.sol contracts/*/*.sol --fix",
@@ -17,7 +17,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git@github.com:dexe-network/W2WProtocol.git"
+    "url": "git+https://github.com/lastperson/dexe.git"
   },
   "keywords": [
     "ethereum",
@@ -28,9 +28,9 @@
   "author": "Armen Arakelian, Yaroslav Tumanov, Oleksii Matiiasevych",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/dexe-network/W2WProtocol/issues"
+    "url": "https://github.com/lastperson/dexe/issues"
   },
-  "homepage": "https://github.com/dexe-network/W2WProtocol",
+  "homepage": "https://github.com/lastperson/dexe#readme",
   "dependencies": {
     "@openzeppelin/contracts": "3.1.0-solc-0.7",
     "@uniswap/v2-core": "1.0.1",

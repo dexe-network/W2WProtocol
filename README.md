@@ -15,7 +15,7 @@ $ npm install
  3. Set GAS_PRICE_GWEI in .env file (optional)
  4. Set PRIVATE_KEY in .env file
  5. Set RPC_URL in .env file
- 6. run: npm run ganache-mainnet-deploy
+ 6. run: npm run mainnet-deploy
 
 ## Running tests
 
@@ -37,10 +37,6 @@ User needs to deploy a wallet for himself sending along ETH that will be used to
 ## UserWallet
 
     changeParam(bytes32 _key, bytes32 _value); // Set value of an arbitrary key.
-        changeParam(
-            '0x535741505f544f00000000000000000000000000000000000000000000000000', // COPY_TO key is used to indicated where exchange result is sent. If value is 0x0 then copying to UserWallet contract.
-            '0x000000000000000000000000cafecafecafecafecafecafecafecafecafecafe'  // 0xcafecafecafecafecafecafecafecafecafecafe address to copy to.
-        );
         changeParam(
             '0x5732570000000000000000000000000000000000000000000000000000000000', // W2W key is used to indicate current Wallet2Wallet contract address. Only the one specified here has access to user's funds.
             '0x000000000000000000000000cafecafecafecafecafecafecafecafecafecafe'  // 0xcafecafecafecafecafecafecafecafecafecafe contract address.

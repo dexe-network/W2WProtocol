@@ -10,7 +10,6 @@ contract UserWallet is IUserWallet {
     using SafeERC20 for IERC20;
     using ParamsLib for *;
     bytes32 constant W2W = 'W2W';
-    bytes32 constant COPY_TO = 'COPY_TO';
     bytes32 constant OWNER = 'OWNER';
 
     mapping (bytes32 => bytes32) public override params;
@@ -45,7 +44,7 @@ contract UserWallet is IUserWallet {
         return _target.call{value: _value}(_data);
     }
 
-    function owner() public view returns(address) {
+    function owner() public view override returns(address payable) {
         return params[OWNER].toAddress();
     }
 

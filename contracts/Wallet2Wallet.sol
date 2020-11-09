@@ -42,6 +42,7 @@ contract Wallet2Wallet is AccessControl {
         uint amountFrom;
         IERC20 tokenTo;
         uint minAmountTo;
+        bool copyToWalletOwner;
         uint txGasLimit;
         address target;
         bytes callData;
@@ -52,6 +53,7 @@ contract Wallet2Wallet is AccessControl {
         uint amountFrom;
         IERC20 tokenTo;
         uint minAmountTo;
+        bool copyToWalletOwner;
         uint txGasLimit;
         address payable target;
         bytes callData;
@@ -62,6 +64,7 @@ contract Wallet2Wallet is AccessControl {
         IERC20 tokenFrom;
         uint amountFrom;
         uint minAmountTo;
+        bool copyToWalletOwner;
         uint txGasLimit;
         address target;
         bytes callData;
@@ -164,7 +167,7 @@ contract Wallet2Wallet is AccessControl {
         uint _balanceThis = _request.tokenTo.balanceOf(address(this));
         require(_balanceThis >= _request.minAmountTo, 'Less than minimum received');
         uint _userGetsAmount = _burnFee(_request.tokenTo, _balanceThis);
-        address _userGetsTo = _swapTo(_request.user);
+        address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount);
     }
 
@@ -176,7 +179,7 @@ contract Wallet2Wallet is AccessControl {
         uint _balanceThis = _request.tokenTo.balanceOf(address(this));
         require(_balanceThis >= _request.minAmountTo, 'Less than minimum received');
         uint _userGetsAmount = _burnFee(_request.tokenTo, _balanceThis);
-        address _userGetsTo = _swapTo(_request.user);
+        address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount);
     }
 
@@ -189,7 +192,7 @@ contract Wallet2Wallet is AccessControl {
         uint _balanceThis = address(this).balance;
         require(_balanceThis >= _request.minAmountTo, 'Less than minimum received');
         uint _userGetsAmount = _burnFeeETH(_balanceThis);
-        address payable _userGetsTo = _swapTo(_request.user);
+        address payable _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _userGetsTo.transfer(_userGetsAmount);
     }
 
@@ -211,12 +214,11 @@ contract Wallet2Wallet is AccessControl {
         _user.demandETH(gasFeeCollector, _txCost);
     }
 
-    function _swapTo(IUserWallet _user) internal view returns(address payable) {
-        address payable _to = _user.params('COPY_TO').toAddress();
-        if (_to == address(0)) {
-            return payable(address(_user));
+    function _swapTo(IUserWallet _user, bool _copyToWalletOwner) internal view returns(address payable) {
+        if (_copyToWalletOwner) {
+           return _user.owner();
         }
-        return _to;
+        return payable(address(_user));
     }
 
     function collectTokens(IERC20 _token, uint _amount, address _to)
