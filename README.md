@@ -1,6 +1,4 @@
-# dexe
-
-# Dexe w2w
+# Wallet2Wallet
 
 ## Installation
 
