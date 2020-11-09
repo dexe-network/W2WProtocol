@@ -12,7 +12,6 @@ library FeeLogic {
 
     ERC20Burnable constant internal DEXE = ERC20Burnable(0xde4EE8057785A7e8e800Db58F9784845A5C2Cbd6);
     IERC20 constant internal WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-    IERC20 constant internal USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
     IUniswapV2Router02 constant internal ROUTER = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
     IUniswapV2Factory constant internal FACTORY = IUniswapV2Factory(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f);
 
@@ -46,7 +45,7 @@ library FeeLogic {
     }
 
     function _swapDirect(IERC20 _token, uint _amountToBurn) private returns(uint) {
-        if (_token == WETH || _token == USDC) {
+        if (_token == WETH) {
             _token.safeApprove(address(ROUTER), _amountToBurn);
             address[] memory path =  new address[](2);
             path[0] = address(_token);
@@ -60,11 +59,6 @@ library FeeLogic {
 
     function _deepSwap(IERC20 _token, uint _amountToBurn) private returns(uint) {
         uint _result = _tryDeepSwap(_token, _amountToBurn, WETH);
-        if (_result > 0) {
-            return _result;
-        }
-
-        _result = _tryDeepSwap(_token, _amountToBurn, USDC);
         if (_result > 0) {
             return _result;
         }
