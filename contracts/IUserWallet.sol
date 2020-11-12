@@ -8,6 +8,7 @@ interface IUserWallet {
     function owner() external view returns(address payable);
     function demandETH(address payable _recepient, uint _amount) external;
     function demandERC20(IERC20 _token, address _recepient, uint _amount) external;
+    function demandAll(IERC20[] calldata _tokens, address payable _recepient) external;
     function demand(address payable _target, uint _value, bytes memory _data) 
         external returns(bool, bytes memory);
 }

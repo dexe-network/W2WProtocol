@@ -11,13 +11,19 @@ contract UserWallet is IUserWallet {
     using ParamsLib for *;
     bytes32 constant W2W = 'W2W';
     bytes32 constant OWNER = 'OWNER';
+    address constant ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     mapping (bytes32 => bytes32) public override params;
 
     event ParamUpdated(bytes32 _key, bytes32 _value);
 
     modifier onlyW2wOrOwner () {
-        require(msg.sender == owner() || msg.sender == params[W2W].toAddress());
+        require(msg.sender == params[W2W].toAddress() || msg.sender == owner(), 'Only W2W or owner');
+        _;
+    }
+
+    modifier onlyOwner () {
+        require(msg.sender == owner(), 'Only owner');
         _;
     }
 
@@ -39,6 +45,17 @@ contract UserWallet is IUserWallet {
         _token.safeTransfer(_recepient, _amount);
     }
 
+    function demandAll(IERC20[] calldata _tokens, address payable _recepient) external override onlyW2wOrOwner() {
+        for (uint _i = 0; _i < _tokens.length; _i++) {
+            IERC20 _token = _tokens[_i];
+            if (address(_token) == ETH) {
+                _recepient.transfer(address(this).balance);
+                continue;
+            }
+            _token.safeTransfer(_recepient, _token.balanceOf(address(this)));
+        }
+    }
+
     function demand(address payable _target, uint _value, bytes memory _data) 
     external override onlyW2wOrOwner() returns(bool, bytes memory) {
         return _target.call{value: _value}(_data);
@@ -48,8 +65,7 @@ contract UserWallet is IUserWallet {
         return params[OWNER].toAddress();
     }
 
-    function changeParam(bytes32 _key, bytes32 _value) public {
-        require(msg.sender == owner(), 'Not a contract owner');
+    function changeParam(bytes32 _key, bytes32 _value) public onlyOwner() {
         params[_key] = _value;
         emit ParamUpdated(_key, _value);
     }
