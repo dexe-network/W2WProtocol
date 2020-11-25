@@ -29,6 +29,7 @@ contract('test', async (accounts) => {
   const ZERO_BALANCE_ADDRESS = '0x22b04f58a35d82df5d714376caf218921f75cefb';
   const ETH_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
   const GAS_PRICE = bn(20000000000);
+  const FEE = 25; // 0.25%
 
   const EXECUTOR = accounts[0];
   const NOT_EXECUTOR = accounts[1];
@@ -64,7 +65,7 @@ contract('test', async (accounts) => {
       const tSBefore = await dexe.totalSupply();
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
-      await wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, FEE, false, bn(3000000),
         uniRouter.address,
         uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -112,7 +113,7 @@ contract('test', async (accounts) => {
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
-      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -159,7 +160,7 @@ contract('test', async (accounts) => {
 
       await dai.approve(userWallet.address, daiAmount.add(bn(1)), {from: user});
 
-      const result = await wallet2Wallet.makeSwap.call([userWallet.address, dai.address, daiAmount.add(bn(1)), weth.address, 0, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwap.call([userWallet.address, dai.address, daiAmount.add(bn(1)), weth.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -167,7 +168,7 @@ contract('test', async (accounts) => {
 
       assertErrorReason(result, 'Dai/insufficient-balance');
 
-      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount.add(bn(1)), weth.address, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount.add(bn(1)), weth.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -211,7 +212,7 @@ contract('test', async (accounts) => {
 
       await dai.approve(userWallet.address, daiAmount.add(bn(1)), {from: user});
 
-      const result = await wallet2Wallet.makeSwap.call([userWallet.address, dai.address, daiAmount, weth.address, 0, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwap.call([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForTokens(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -219,7 +220,7 @@ contract('test', async (accounts) => {
 
       assertErrorReason(result, 'TransferHelper: TRANSFER_FROM_FAILED');
 
-      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForTokens(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -263,7 +264,7 @@ contract('test', async (accounts) => {
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -308,7 +309,7 @@ contract('test', async (accounts) => {
 
       await dai.approve(userWallet.address, daiAmount.add(bn(1)), {from: user});
 
-      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount.add(bn(1)), 0, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount.add(bn(1)), 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -316,7 +317,7 @@ contract('test', async (accounts) => {
 
       assertErrorReason(result, 'Dai/insufficient-balance');
 
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount.add(bn(1)), 0, false, bn(3000000),
+      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount.add(bn(1)), 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -356,7 +357,7 @@ contract('test', async (accounts) => {
 
       await dai.approve(userWallet.address, daiAmount.add(bn(1)), {from: user});
 
-      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, 0, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -364,7 +365,7 @@ contract('test', async (accounts) => {
 
       assertErrorReason(result, 'TransferHelper: TRANSFER_FROM_FAILED');
 
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -398,7 +399,7 @@ contract('test', async (accounts) => {
       await weth.approve(userWallet.address, wethAmount, {from: user});
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
-      await wallet2Wallet.makeSwap([userWallet.address, weth.address, wethAmount, dexe.address, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwap([userWallet.address, weth.address, wethAmount, dexe.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForTokens(wethAmount, 0, [weth.address, dexe.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -445,14 +446,14 @@ contract('test', async (accounts) => {
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       // Using wrong uniswap path to get an error.
-      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, 0, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, '10000000000000000000000', [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
 
       assertErrorReason(result, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, '10000000000000000000000', [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -497,14 +498,14 @@ contract('test', async (accounts) => {
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       // Using wrong uniswap path to get an error.
-      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, '10000000000000000000000', false, bn(3000000),
+      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, '10000000000000000000000', FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
 
       assertErrorReason(result, 'Less than minimum received');
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, '10000000000000000000000', false, bn(3000000),
+      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, '10000000000000000000000', FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -526,7 +527,7 @@ contract('test', async (accounts) => {
       const tSBefore = await dexe.totalSupply();
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
-      await wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, true, bn(3000000),
+      await wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, FEE, true, bn(3000000),
         uniRouter.address,
         uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -561,7 +562,7 @@ contract('test', async (accounts) => {
 
       const tSBefore = await dexe.totalSupply();
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
-      await wallet2Wallet.makeSwap([userWallet.address, daiAddress, amount, token.address, 0, false, bn(3000000),
+      await wallet2Wallet.makeSwap([userWallet.address, daiAddress, amount, token.address, 0, FEE, false, bn(3000000),
         uniRouter.address, uniRouter.address,
         uniRouter.contract.methods.swapExactTokensForTokens(amount, 0, [daiAddress, token.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -605,7 +606,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
 
       await truffleAssert.reverts(
-        wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, false, bn(3000000),
+        wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
           routerAddress, routerAddress,
           uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -634,7 +635,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
 
       await truffleAssert.reverts(
-        wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, false, bn(3000000),
+        wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
           routerAddress, routerAddress,
           uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -652,7 +653,7 @@ contract('test', async (accounts) => {
       await userWallet.send(bn('10000000000000000000'), {from: user});
 
       await truffleAssert.reverts(
-        wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, false, bn(3000000),
+        wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, FEE, false, bn(3000000),
           uniRouter.address,
           uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -673,7 +674,7 @@ contract('test', async (accounts) => {
 
 
       await truffleAssert.reverts(
-        wallet2Wallet.makeSwapETHForTokens([userWallet.address, amountFrom, daiAddress, 0, false, bn(3000000),
+        wallet2Wallet.makeSwapETHForTokens([userWallet.address, amountFrom, daiAddress, 0, FEE, false, bn(3000000),
           uniRouter.address,
           uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -702,7 +703,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
 
       await truffleAssert.reverts(
-        wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, false, bn(3000000),
+        wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
           routerAddress, routerAddress,
           uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -731,7 +732,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
 
       await truffleAssert.reverts(
-        wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, false, bn(3000000),
+        wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
           routerAddress, routerAddress,
           uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -761,7 +762,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
 
       await truffleAssert.reverts(
-        wallet2Wallet._execute([userWallet.address, dai.address, daiAmount, weth.address, 0, false, bn(3000000),
+        wallet2Wallet._execute([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
           routerAddress, routerAddress,
           uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -770,7 +771,7 @@ contract('test', async (accounts) => {
       );
 
       await truffleAssert.reverts(
-        wallet2Wallet._executeETHForTokens([userWallet.address, amount, daiAddress, 0, false, bn(3000000),
+        wallet2Wallet._executeETHForTokens([userWallet.address, amount, daiAddress, 0, FEE, false, bn(3000000),
           uniRouter.address,
           uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
@@ -779,7 +780,7 @@ contract('test', async (accounts) => {
       );
 
       await truffleAssert.reverts(
-        wallet2Wallet._executeTokensForETH([userWallet.address, dai.address, daiAmount, 0, false, bn(3000000),
+        wallet2Wallet._executeTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
           routerAddress, routerAddress,
           uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
