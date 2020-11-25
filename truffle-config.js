@@ -13,6 +13,7 @@ module.exports = {
       port: 8545,
       network_id: "*",
       gas: 12000000,
+      gasPrice: 20000000000,
     },
     mainnet: { // truffle deploy --network mainnet --reset
       provider: () => new HDWalletProvider(process.env.PRIVATE_KEY, process.env.RPC_URL),

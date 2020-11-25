@@ -45,6 +45,7 @@ contract Wallet2Wallet is AccessControl {
         bool copyToWalletOwner;
         uint txGasLimit;
         address target;
+        address approveTarget;
         bytes callData;
     }
 
@@ -67,6 +68,7 @@ contract Wallet2Wallet is AccessControl {
         bool copyToWalletOwner;
         uint txGasLimit;
         address target;
+        address approveTarget;
         bytes callData;
     }
 
@@ -160,7 +162,7 @@ contract Wallet2Wallet is AccessControl {
 
     function _execute(Request memory _request) external onlyThis() {
         _request.user.demandERC20(_request.tokenFrom, address(this), _request.amountFrom);
-        _request.tokenFrom.safeApprove(_request.target, _request.amountFrom);
+        _request.tokenFrom.safeApprove(_request.approveTarget, _request.amountFrom);
 
         (bool _success, bytes memory _reason) = _request.target.call(_request.callData);
         _require(_success, _reason);
@@ -185,7 +187,7 @@ contract Wallet2Wallet is AccessControl {
 
     function _executeTokensForETH(RequestTokensForETH memory _request) external onlyThis() {
         _request.user.demandERC20(_request.tokenFrom, address(this), _request.amountFrom);
-        _request.tokenFrom.safeApprove(_request.target, _request.amountFrom);
+        _request.tokenFrom.safeApprove(_request.approveTarget, _request.amountFrom);
 
         (bool _success, bytes memory _reason) = _request.target.call(_request.callData);
         _require(_success, _reason);
