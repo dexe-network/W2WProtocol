@@ -2,16 +2,17 @@
 pragma solidity 0.7.4;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import './Constants.sol';
 import './IUserWallet.sol';
 import './ParamsLib.sol';
 import './SafeERC20.sol';
 
-contract UserWallet is IUserWallet {
+contract UserWallet is IUserWallet, Constants {
     using SafeERC20 for IERC20;
     using ParamsLib for *;
     bytes32 constant W2W = 'W2W';
     bytes32 constant OWNER = 'OWNER';
-    address constant ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    bytes32 constant REFERRER = 'REFERRER';
 
     mapping (bytes32 => bytes32) public override params;
 
@@ -27,10 +28,13 @@ contract UserWallet is IUserWallet {
         _;
     }
 
-    function init(address _w2w, address _owner) external payable {
+    function init(address _w2w, address _owner, address _referrer) external payable {
         require(owner() == address(0), 'Already initialized');
         params[OWNER] = _owner.toBytes32();
         params[W2W] = _w2w.toBytes32();
+        if (_referrer != address(0)) {
+            params[REFERRER] = _referrer.toBytes32();
+        }
     }
 
     function demandETH(address payable _recepient, uint _amount) external override onlyW2wOrOwner() {
@@ -48,11 +52,11 @@ contract UserWallet is IUserWallet {
     function demandAll(IERC20[] calldata _tokens, address payable _recepient) external override onlyW2wOrOwner() {
         for (uint _i = 0; _i < _tokens.length; _i++) {
             IERC20 _token = _tokens[_i];
-            if (address(_token) == ETH) {
+            if (_token == ETH) {
                 _recepient.transfer(address(this).balance);
-                continue;
+            } else {
+                _token.safeTransfer(_recepient, _token.balanceOf(address(this)));
             }
-            _token.safeTransfer(_recepient, _token.balanceOf(address(this)));
         }
     }
 
@@ -66,6 +70,7 @@ contract UserWallet is IUserWallet {
     }
 
     function changeParam(bytes32 _key, bytes32 _value) public onlyOwner() {
+        require(_key != REFERRER, 'Cannot update referrer');
         params[_key] = _value;
         emit ParamUpdated(_key, _value);
     }

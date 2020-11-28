@@ -5,8 +5,9 @@ pragma experimental ABIEncoderV2;
 import '@openzeppelin/contracts/access/AccessControl.sol';
 import '@openzeppelin/contracts/math/SafeMath.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import './FeeLogic.sol';
+import './Constants.sol';
 import './IUserWallet.sol';
+import './IBuyBurner.sol';
 import './ParamsLib.sol';
 import './SafeERC20.sol';
 
@@ -21,7 +22,7 @@ library ExtraMath {
     }
 }
 
-contract Wallet2Wallet is AccessControl {
+contract Wallet2Wallet is AccessControl, Constants {
     using SafeERC20 for IERC20;
     using SafeMath for uint;
     using ExtraMath for uint;
@@ -32,9 +33,10 @@ contract Wallet2Wallet is AccessControl {
     uint constant public GAS_SAVE = 30000;
     uint constant public HUNDRED_PERCENT = 10000; // 100.00%
     uint constant public MAX_FEE_PERCENT = 50; // 0.50%
-    address immutable public TOKEN_BURNER;
+    IBuyBurner immutable public TOKEN_BURNER;
 
     address payable public gasFeeCollector;
+    mapping(IERC20 => uint) public fees;
 
     struct Request {
         IUserWallet user;
@@ -92,7 +94,12 @@ contract Wallet2Wallet is AccessControl {
         _;
     }
 
-    constructor(address _tokenBurner) {
+    modifier checkFee(uint _feePercent) {
+        require(_feePercent <= MAX_FEE_PERCENT, 'Fee is too high');
+        _;
+    }
+
+    constructor(IBuyBurner _tokenBurner) {
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
         _setupRole(EXECUTOR_ROLE, _msgSender());
         gasFeeCollector = payable(_msgSender());
@@ -107,8 +114,7 @@ contract Wallet2Wallet is AccessControl {
     receive() payable external {}
 
     function makeSwap(Request memory _request)
-    external onlyExecutor() returns(bool, bytes memory _reason) {
-        require(_request.fee <= MAX_FEE_PERCENT, 'Fee is too high');
+    external onlyExecutor() checkFee(_request.fee) returns(bool, bytes memory _reason) {
         require(address(_request.user).balance >= (_request.txGasLimit * tx.gasprice),
             'Not enough ETH in UserWallet');
 
@@ -124,8 +130,7 @@ contract Wallet2Wallet is AccessControl {
     }
 
     function makeSwapETHForTokens(RequestETHForTokens memory _request)
-    external onlyExecutor() returns(bool, bytes memory _reason) {
-        require(_request.fee <= MAX_FEE_PERCENT, 'Fee is too high');
+    external onlyExecutor() checkFee(_request.fee) returns(bool, bytes memory _reason) {
         require(address(_request.user).balance >= ((_request.txGasLimit * tx.gasprice) + _request.amountFrom),
             'Not enough ETH in UserWallet');
 
@@ -141,8 +146,7 @@ contract Wallet2Wallet is AccessControl {
     }
 
     function makeSwapTokensForETH(RequestTokensForETH memory _request)
-    external onlyExecutor() returns(bool, bytes memory _reason) {
-        require(_request.fee <= MAX_FEE_PERCENT, 'Fee is too high');
+    external onlyExecutor() checkFee(_request.fee) returns(bool, bytes memory _reason) {
         require(address(_request.user).balance >= (_request.txGasLimit * tx.gasprice),
             'Not enough ETH in UserWallet');
 
@@ -174,7 +178,7 @@ contract Wallet2Wallet is AccessControl {
         _require(_success, _reason);
         uint _balanceThis = _request.tokenTo.balanceOf(address(this));
         require(_balanceThis >= _request.minAmountTo, 'Less than minimum received');
-        uint _userGetsAmount = _burnFee(_request.tokenTo, _balanceThis, _request.fee);
+        uint _userGetsAmount = _saveFee(_request.tokenTo, _balanceThis, _request.fee);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount);
     }
@@ -186,7 +190,7 @@ contract Wallet2Wallet is AccessControl {
         _require(_success, _reason);
         uint _balanceThis = _request.tokenTo.balanceOf(address(this));
         require(_balanceThis >= _request.minAmountTo, 'Less than minimum received');
-        uint _userGetsAmount = _burnFee(_request.tokenTo, _balanceThis, _request.fee);
+        uint _userGetsAmount = _saveFee(_request.tokenTo, _balanceThis, _request.fee);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount);
     }
@@ -199,27 +203,17 @@ contract Wallet2Wallet is AccessControl {
         _require(_success, _reason);
         uint _balanceThis = address(this).balance;
         require(_balanceThis >= _request.minAmountTo, 'Less than minimum received');
-        uint _userGetsAmount = _burnFeeETH(_balanceThis, _request.fee);
+        uint _userGetsAmount = _saveFee(ETH, _balanceThis, _request.fee);
         address payable _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _userGetsTo.transfer(_userGetsAmount);
     }
 
-    function _burnFee(IERC20 _token, uint _amount, uint _feePercent) internal returns(uint) {
+    function _saveFee(IERC20 _token, uint _amount, uint _feePercent) internal returns(uint) {
         if (_feePercent == 0) {
             return _amount;
         }
         uint _fee = _amount.mul(_feePercent).divCeil(HUNDRED_PERCENT);
-        FeeLogic._burnWithUniswap(_token, _fee, TOKEN_BURNER);
-        return _amount.sub(_fee);
-    }
-
-    function _burnFeeETH(uint _amount, uint _feePercent) internal returns(uint) {
-        if (_feePercent == 0) {
-            return _amount;
-        }
-        uint _fee = _amount.mul(_feePercent).divCeil(HUNDRED_PERCENT);
-        (bool _success,) = address(FeeLogic.WETH).call{value: _fee}('');
-        FeeLogic._burnWithUniswap(FeeLogic.WETH, _fee, TOKEN_BURNER);
+        fees[_token] = fees[_token].add(_fee);
         return _amount.sub(_fee);
     }
 
@@ -235,14 +229,28 @@ contract Wallet2Wallet is AccessControl {
         return payable(address(_user));
     }
 
-    function collectTokens(IERC20 _token, uint _amount, address _to)
-    external onlyOwner() {
-        _token.safeTransfer(_to, _amount);
+    function sendFeeForBurning(IERC20[] calldata _tokens) external {
+        for (uint _i = 0; _i < _tokens.length; _i++) {
+            IERC20 _token = _tokens[_i];
+            uint _fee = fees[_token];
+            fees[_token] = 0;
+            if (_token == ETH) {
+                payable(TOKEN_BURNER).transfer(_fee);
+            } else {
+                _token.safeTransfer(address(TOKEN_BURNER), _fee);
+            }
+        }
     }
 
-    function collectETH(uint _amount, address payable _to)
+    function collectTokens(IERC20 _token, uint _amount, address _to)
     external onlyOwner() {
-        require(address(this).balance >= _amount, 'Insufficient extra ETH');
-        _to.transfer(_amount);
+        uint _fees = fees[_token];
+        if (_token == ETH) {
+            require(address(this).balance.sub(_fees) >= _amount, 'Insufficient extra ETH');
+            payable(_to).transfer(_amount);
+        } else {
+            require(_token.balanceOf(address(this)).sub(_fees) >= _amount, 'Insufficient extra tokens');
+            _token.safeTransfer(_to, _amount);
+        }
     }
 }

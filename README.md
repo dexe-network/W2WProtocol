@@ -31,8 +31,8 @@ $ npm run test
 User needs to deploy a wallet for himself sending along ETH that will be used to cover copy fees.
 
     getUserWallet(address _user) view returns(address); // Get address of the user wallet, or 0x0 if not deployed.
-    deployUserWallet(address _w2w) payable; // Deploy user wallet for transaction sender.
-    deployUserWalletFor(address _w2w, address _user) payable; // Deploy user wallet for specific user.
+    deployUserWallet(address _w2w, address _referrer) payable; // Deploy user wallet for transaction sender.
+    deployUserWalletFor(address _w2w, address _user, address _referrer) payable; // Deploy user wallet for specific user.
 
 ## UserWallet
 

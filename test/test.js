@@ -27,12 +27,14 @@ contract('test', async (accounts) => {
   const routerAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
   const dexeAddress = '0xde4EE8057785A7e8e800Db58F9784845A5C2Cbd6';
   const ZERO_BALANCE_ADDRESS = '0x22b04f58a35d82df5d714376caf218921f75cefb';
+  const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
   const ETH_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
   const GAS_PRICE = bn(20000000000);
   const FEE = 25; // 0.25%
 
   const EXECUTOR = accounts[0];
   const NOT_EXECUTOR = accounts[1];
+  const NOT_OWNER = NOT_EXECUTOR;
 
   let nextAccount = 1;
 
@@ -40,6 +42,7 @@ contract('test', async (accounts) => {
 
   before('setup', async () => {
     buyBurner = await BuyBurner.deployed();
+    await buyBurner.approveExchange([daiAddress, WETH_ADDRESS]);
     userWalletFactory = await UserWalletFactory.deployed();
     wallet2Wallet = await Wallet2Wallet.deployed();
 
@@ -54,11 +57,16 @@ contract('test', async (accounts) => {
     assert.equal(web3.utils.toAscii('0x' + actualResult[1].slice(138).replace(/00+$/, '')), expectedReason);
   };
 
+  const buyAndBurn = async () => {
+    await wallet2Wallet.sendFeeForBurning([daiAddress, ETH_ADDRESS, WETH_ADDRESS, dexeAddress]);
+    await buyBurner.buyBurn([daiAddress, ETH_ADDRESS, WETH_ADDRESS]);
+  };
+
   describe('Wallet2Wallet', async () => {
     it('should swap eth to token', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(9000000000000000000);
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
       await userWallet.send(bn('10000000000000000000'), {from: user});
@@ -72,6 +80,7 @@ contract('test', async (accounts) => {
         {gas: bn(3000000)});
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
+      await buyAndBurn();
       const tSAfter = await dexe.totalSupply();
 
       assert.isTrue(tSBefore.gt(tSAfter));
@@ -81,10 +90,38 @@ contract('test', async (accounts) => {
       assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
     });
 
-    it('should be possible to swap weth/usdc (direct pair)', async () => {
+    it('should be possible to swap eth to token without burn fee and dexe is not burned if fee is set to 0', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn(9000000000000000000);
+      const zeroFee = 0;
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+      await userWallet.send(bn('10000000000000000000'), {from: user});
+      const tSBefore = await dexe.totalSupply();
+
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+      await wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, zeroFee, false, bn(3000000),
+        uniRouter.address,
+        uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: bn(3000000)});
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+
+      const tSAfter = await dexe.totalSupply();
+
+      assert.isTrue(tSBefore.eq(tSAfter));
+
+      assert.isTrue((await dai.balanceOf(userWallet.address)).gt(bn(0)));
+      assertBNequal((await dai.balanceOf(buyBurner.address)), bn(0));
+      assertBNequal((await dai.balanceOf(user)), bn(0));
+      assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
+    });
+
+    it('should be possible to swap weth (direct pair)', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -120,6 +157,7 @@ contract('test', async (accounts) => {
         {gas: bn(3000000)});
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
+      await buyAndBurn();
       const dexeSupplyAfter = await dexe.totalSupply();
 
       assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
@@ -129,10 +167,84 @@ contract('test', async (accounts) => {
       assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
     });
 
-    it('should NOT be possible to swap via makeSwap on w2w weth/usdc (direct pair) if not enough tokens on user account', async () => {
+    it('should be possible to swap weth (direct pair) without burn fee and dexe is not burned if fee is set to 0', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      const zeroFee = 0;
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+
+      await userWallet.send(amount, {from: user});
+
+      // get weth (to token)
+      assertBNequal(await weth.balanceOf(user), 0);
+      await weth.send(amount, {from: user});
+      assertBNequal(await weth.balanceOf(user), amount);
+
+      // get dai (from token)
+      assertBNequal(await dai.balanceOf(user), 0);
+
+      await weth.approve(uniRouter.address, amount, {from: user});
+      await uniRouter.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], user, Math.floor(Date.now() / 1000) + 86400, {from: user})
+
+      assertBNequal(await weth.balanceOf(user), 0);
+      assert.isTrue((await dai.balanceOf(user)).gt(0));
+
+      // DAI to WETH
+      const daiAmount = await dai.balanceOf(user);
+      await dai.approve(uniRouter.address, daiAmount, {from: user});
+
+      const dexeSupplyBefore = await dexe.totalSupply();
+
+      await dai.approve(userWallet.address, daiAmount, {from: user});
+
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, zeroFee, false, bn(3000000),
+        routerAddress, routerAddress,
+        uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: bn(3000000)});
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+
+      await buyAndBurn();
+      const dexeSupplyAfter = await dexe.totalSupply();
+
+      assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
+      assert.isTrue((await weth.balanceOf(userWallet.address)).gt(bn(0)));
+      assertBNequal((await dai.balanceOf(user)), bn(0));
+      assertBNequal((await dai.balanceOf(userWallet.address)), bn(0));
+      assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
+    });
+
+    it('should NOT be possible to swap via makeSwapETHForTokens on w2w weth (direct pair) if user fee more than allowed provided', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn(9000000000000000000);
+      const highFee = 51; // 0.51%;
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+      await userWallet.send(bn('10000000000000000000'), {from: user});
+      const tSBefore = await dexe.totalSupply();
+
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) == executorBalanceBefore);
+
+      await truffleAssert.reverts(
+        wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, highFee, false, bn(3000000),
+          uniRouter.address,
+          uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
+            wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+          {gas: bn(3000000)}),
+        'Fee is too high'
+      )
+    });
+
+    it('should NOT be possible to swap via makeSwap on w2w weth (direct pair) if not enough tokens on user account', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn('5000000000000000000');
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -176,15 +288,59 @@ contract('test', async (accounts) => {
 
       assertBNequal((await dai.balanceOf(user)), daiAmount);
 
+      await buyAndBurn();
       const dexeSupplyAfter = await dexe.totalSupply();
 
       assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
     });
 
-    it('should NOT be possible to swap via makeSwap on w2w weth/usdc (direct pair) if not enough tokens inside uniswap swapExactTokensForTokens call data', async () => {
+
+    it('should NOT be possible to swap via makeSwap on w2w weth (direct pair) if user fee more than allowed provided', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+      const highFee = 51; // 0.51%
+
+      await userWallet.send(amount, {from: user});
+
+      // get weth (to token)
+      assertBNequal(await weth.balanceOf(user), 0);
+      await weth.send(amount, {from: user});
+      assertBNequal(await weth.balanceOf(user), amount);
+
+      // get dai (from token)
+      assertBNequal(await dai.balanceOf(user), 0);
+
+      await weth.approve(uniRouter.address, amount, {from: user});
+      await uniRouter.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], user, Math.floor(Date.now() / 1000) + 86400, {from: user})
+
+      assertBNequal(await weth.balanceOf(user), 0);
+      assert.isTrue((await dai.balanceOf(user)).gt(0));
+
+      // DAI to WETH
+      const daiAmount = await dai.balanceOf(user);
+      await dai.approve(uniRouter.address, daiAmount, {from: user});
+
+      const dexeSupplyBefore = await dexe.totalSupply();
+
+      await dai.approve(userWallet.address, daiAmount, {from: user});
+
+      await truffleAssert.reverts(
+        wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, highFee, false, bn(3000000),
+          routerAddress, routerAddress,
+          uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
+            wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+          {gas: bn(3000000)}),
+        'Fee is too high'
+      );
+    });
+
+    it('should NOT be possible to swap via makeSwap on w2w weth (direct pair) if not enough tokens inside uniswap swapExactTokensForTokens call data', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn('5000000000000000000');
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -228,6 +384,7 @@ contract('test', async (accounts) => {
 
       assertBNequal((await dai.balanceOf(user)), daiAmount);
 
+      await buyAndBurn();
       const dexeSupplyAfter = await dexe.totalSupply();
 
       assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
@@ -237,7 +394,7 @@ contract('test', async (accounts) => {
     it('should be possible to swap token to eth (direct pair)', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -271,6 +428,7 @@ contract('test', async (accounts) => {
         {gas: bn(3000000)});
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
+      await buyAndBurn();
       const dexeSupplyAfter = await dexe.totalSupply();
 
       assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
@@ -280,10 +438,58 @@ contract('test', async (accounts) => {
       assert.isTrue((await web3.eth.getBalance(userWallet.address)) > 0);
     });
 
+    it('should be possible to swap token to eth (direct pair) without burn fee and dexe is not burned if fee is set to 0', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn('5000000000000000000');
+      const zeroFee = 0;
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+
+      await userWallet.send(amount, {from: user});
+
+      // get weth (to token)
+      assertBNequal(await weth.balanceOf(user), 0);
+      await weth.send(amount, {from: user});
+      assertBNequal(await weth.balanceOf(user), amount);
+
+      // get dai (from token)
+      await weth.approve(uniRouter.address, amount, {from: user});
+      await uniRouter.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], user, Math.floor(Date.now() / 1000) + 86400, {from: user})
+
+      assertBNequal(await weth.balanceOf(user), 0);
+      assert.isTrue((await dai.balanceOf(user)).gt(0));
+
+      // DAI to WETH
+      const daiAmount = await dai.balanceOf(user);
+      await dai.approve(uniRouter.address, daiAmount, {from: user});
+
+      const dexeSupplyBefore = await dexe.totalSupply();
+
+      await dai.approve(userWallet.address, daiAmount, {from: user});
+
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, zeroFee, false, bn(3000000),
+        routerAddress, routerAddress,
+        uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: bn(3000000)});
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+
+      await buyAndBurn();
+      const dexeSupplyAfter = await dexe.totalSupply();
+
+      assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
+      assertBNequal((await weth.balanceOf(userWallet.address)), bn(0));
+      assertBNequal((await dai.balanceOf(user)), bn(0));
+      assertBNequal((await dai.balanceOf(userWallet.address)), bn(0));
+      assert.isTrue((await web3.eth.getBalance(userWallet.address)) > 0);
+    });
+
     it('should NOT be possible to swap token to eth (direct pair) via makeSwapTokensForETH on w2w if not enough tokens on user account', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -323,6 +529,7 @@ contract('test', async (accounts) => {
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
 
+      await buyAndBurn();
       const dexeSupplyAfter = await dexe.totalSupply();
 
       assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
@@ -331,7 +538,7 @@ contract('test', async (accounts) => {
     it('should NOT be possible to swap token to eth (direct pair) via makeSwapTokensForETH on w2w if not enough tokens inside uniswap swapExactTokensForETH call data', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -371,15 +578,56 @@ contract('test', async (accounts) => {
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
 
+      await buyAndBurn();
       const dexeSupplyAfter = await dexe.totalSupply();
 
       assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
     });
 
+    it('should NOT be possible to swap token to eth (direct pair) via makeSwapTokensForETH on w2w if user fee more than allowed provided', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn('5000000000000000000');
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+      const highFee = 51; // 0.51%
+
+      await userWallet.send(amount, {from: user});
+
+      // get weth (to token)
+      assertBNequal(await weth.balanceOf(user), 0);
+      await weth.send(amount, {from: user});
+      assertBNequal(await weth.balanceOf(user), amount);
+
+      // get dai (from token)
+      await weth.approve(uniRouter.address, amount, {from: user});
+      await uniRouter.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], user, Math.floor(Date.now() / 1000) + 86400, {from: user})
+
+      assertBNequal(await weth.balanceOf(user), 0);
+      assert.isTrue((await dai.balanceOf(user)).gt(0));
+
+      // DAI to WETH
+      const daiAmount = await dai.balanceOf(user);
+      await dai.approve(uniRouter.address, daiAmount, {from: user});
+
+      const dexeSupplyBefore = await dexe.totalSupply();
+
+      await dai.approve(userWallet.address, daiAmount, {from: user});
+
+      await truffleAssert.reverts(
+        wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, 0, highFee, false, bn(3000000),
+          routerAddress, routerAddress,
+          uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
+            wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+          {gas: bn(3000000)}),
+        'Fee is too high'
+      );
+    });
+
     it('should be possible to swap dexe (burn dexe directly)', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -406,6 +654,7 @@ contract('test', async (accounts) => {
         {gas: bn(3000000)});
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
+      await buyAndBurn();
       const dexeSupplyAfter = await dexe.totalSupply();
 
       assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
@@ -417,7 +666,7 @@ contract('test', async (accounts) => {
     it('should return error reason from target call', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -469,7 +718,7 @@ contract('test', async (accounts) => {
     it('should return error reason from execution', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -521,7 +770,7 @@ contract('test', async (accounts) => {
     it('should swap to user address instead of wallet', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(9000000000000000000);
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user, value: bn('10000000000000000000')});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user, value: bn('10000000000000000000')});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
       const tSBefore = await dexe.totalSupply();
@@ -534,6 +783,7 @@ contract('test', async (accounts) => {
         {gas: bn(3000000)});
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
+      await buyAndBurn();
       const tSAfter = await dexe.totalSupply();
 
       assert.isTrue(tSBefore.gt(tSAfter));
@@ -548,7 +798,7 @@ contract('test', async (accounts) => {
       const user = accounts[nextAccount++];
       const amount = bn('9000000000000000000');
       token = await Token.new(amount);
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
       await userWallet.send(bn('10000000000000000000'), {from: user});
@@ -568,6 +818,7 @@ contract('test', async (accounts) => {
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+      await wallet2Wallet.sendFeeForBurning([token.address]);
       const tSAfter = await dexe.totalSupply();
 
       assertBNequal(tSBefore, tSAfter);
@@ -589,7 +840,7 @@ contract('test', async (accounts) => {
     it('should not be possible to swap eth to token for not executor', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -618,7 +869,7 @@ contract('test', async (accounts) => {
     it('should not be possible to swap eth to token for not executor if user wallet does not have enough ETH', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(3000000).mul(GAS_PRICE).sub(bn(1));
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -647,7 +898,7 @@ contract('test', async (accounts) => {
     it('should not be possible to makeSwapETHForTokens for not executor', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(9000000000000000000);
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
       await userWallet.send(bn('10000000000000000000'), {from: user});
@@ -666,7 +917,7 @@ contract('test', async (accounts) => {
       const user = accounts[nextAccount++];
       const amountFrom = bn(9000000000000000000);
       const amount = bn(3000000).mul(GAS_PRICE).add(amountFrom).sub(bn(1));
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -686,7 +937,7 @@ contract('test', async (accounts) => {
     it('should not be possible to makeSwapTokensForETH for not executor', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -715,7 +966,7 @@ contract('test', async (accounts) => {
     it('should not be possible to makeSwapTokensForETH for not executor if user wallet does not have enough ETH', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(3000000).mul(GAS_PRICE).sub(bn(1));
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -744,7 +995,7 @@ contract('test', async (accounts) => {
     it('should not be possible to call externally _execute, _executeETHForTokens, _executeTokensForETH from not W2W contract', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('5000000000000000000');
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -789,6 +1040,108 @@ contract('test', async (accounts) => {
       );
     });
 
+    it('should be possible to collect tokens from W2W without touching fees', async () => {
+      const user = accounts[nextAccount++];
+      const receiver = accounts[nextAccount++];
+      const amount = bn('5000000000000000000');
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+
+      await userWallet.send(amount, {from: user});
+
+      // get weth (to token)
+      assertBNequal(await weth.balanceOf(user), 0);
+      await weth.send(amount, {from: user});
+      assertBNequal(await weth.balanceOf(user), amount);
+
+      // get dai (from token)
+      await weth.approve(uniRouter.address, amount, {from: user});
+      await uniRouter.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], user, Math.floor(Date.now() / 1000) + 86400, {from: user})
+
+      assertBNequal(await weth.balanceOf(user), 0);
+      assert.isTrue((await dai.balanceOf(user)).gt(0));
+
+      // DAI to WETH
+      const daiAmount = await dai.balanceOf(user);
+      await dai.approve(uniRouter.address, daiAmount, {from: user});
+
+      const dexeSupplyBefore = await dexe.totalSupply();
+
+      await dai.approve(userWallet.address, daiAmount, {from: user});
+
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
+        routerAddress, routerAddress,
+        uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: bn(3000000)});
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+
+      await weth.send(amount, {from: user});
+      await weth.transfer(wallet2Wallet.address, amount, {from: user});
+
+      await truffleAssert.reverts(
+        wallet2Wallet.collectTokens(weth.address, amount.add(bn(1)), receiver),
+        'Insufficient extra tokens'
+      );
+
+      await wallet2Wallet.collectTokens(weth.address, amount, receiver),
+
+      assertBNequal(await weth.balanceOf(wallet2Wallet.address), await wallet2Wallet.fees(weth.address));
+      assertBNequal(await weth.balanceOf(receiver), amount);
+    });
+
+    it('should be possible to collect ETH from W2W without touching fees', async () => {
+      const user = accounts[nextAccount++];
+      const receiver = '0x000000000000000000000000000000000000cafe';
+      const amount = bn('5000000000000000000');
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+
+      await userWallet.send(amount, {from: user});
+
+      // get weth (to token)
+      assertBNequal(await weth.balanceOf(user), 0);
+      await weth.send(amount, {from: user});
+      assertBNequal(await weth.balanceOf(user), amount);
+
+      // get dai (from token)
+      await weth.approve(uniRouter.address, amount, {from: user});
+      await uniRouter.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], user, Math.floor(Date.now() / 1000) + 86400, {from: user})
+
+      assertBNequal(await weth.balanceOf(user), 0);
+      assert.isTrue((await dai.balanceOf(user)).gt(0));
+
+      // DAI to WETH
+      const daiAmount = await dai.balanceOf(user);
+      await dai.approve(uniRouter.address, daiAmount, {from: user});
+
+      const dexeSupplyBefore = await dexe.totalSupply();
+
+      await dai.approve(userWallet.address, daiAmount, {from: user});
+
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
+        routerAddress, routerAddress,
+        uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: bn(3000000)});
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+
+      await wallet2Wallet.send(amount, {from: user});
+
+      await truffleAssert.reverts(
+        wallet2Wallet.collectTokens(ETH_ADDRESS, amount.add(bn(1)), receiver),
+        'Insufficient extra ETH'
+      );
+
+      await wallet2Wallet.collectTokens(ETH_ADDRESS, amount, receiver),
+
+      assertBNequal(await web3.eth.getBalance(wallet2Wallet.address), await wallet2Wallet.fees(ETH_ADDRESS));
+      assertBNequal(await web3.eth.getBalance(receiver), amount);
+    });
 
     it('should be possible to collect tokens from W2W', async () => {
       const user = accounts[nextAccount++];
@@ -810,6 +1163,25 @@ contract('test', async (accounts) => {
       assertBNequal(await weth.balanceOf(receiver), amount);
     });
 
+    it('should not be possible to collect tokens from W2W for not owner', async () => {
+      const user = accounts[nextAccount++];
+      const receiver = accounts[nextAccount++];
+      const amount = bn('5000000000000000000');
+
+      // get weth (to token)
+      await weth.send(amount, {from: user});
+
+      await weth.transfer(wallet2Wallet.address, amount, {from: user});
+
+      const w2wBalance = await weth.balanceOf(wallet2Wallet.address);
+      assertBNequal(await weth.balanceOf(receiver), 0);
+
+      await truffleAssert.reverts(
+        wallet2Wallet.collectTokens(weth.address, amount, receiver, {from: NOT_OWNER}),
+        'Only owner'
+      );
+    });
+
     it('should be possible to collect ETH from W2W', async () => {
       const user = accounts[nextAccount++];
       const receiver = accounts[nextAccount++];
@@ -819,12 +1191,29 @@ contract('test', async (accounts) => {
 
       const receiverBalance = await web3.eth.getBalance(receiver);
 
-      assertBNequal(await web3.eth.getBalance(wallet2Wallet.address), amount);
+      assertBNequal(await web3.eth.getBalance(wallet2Wallet.address), amount.add(bn(await wallet2Wallet.fees(ETH_ADDRESS))));
 
-      await wallet2Wallet.collectETH(amount, receiver);
+      await wallet2Wallet.collectTokens(ETH_ADDRESS, amount, receiver);
 
-      assertBNequal(await web3.eth.getBalance(wallet2Wallet.address), 0);
+      assertBNequal(await web3.eth.getBalance(wallet2Wallet.address), await wallet2Wallet.fees(ETH_ADDRESS));
       assertBNequal(await web3.eth.getBalance(receiver), bn(receiverBalance).add(amount));
+    });
+
+    it('should not be possible to collect ETH from W2W for not owner', async () => {
+      const user = accounts[nextAccount++];
+      const receiver = accounts[nextAccount++];
+      const amount = bn('5000000000000000000');
+
+      await wallet2Wallet.send(amount, {from: user});
+
+      const receiverBalance = await web3.eth.getBalance(receiver);
+
+      assertBNequal(await web3.eth.getBalance(wallet2Wallet.address), amount.add(bn(await wallet2Wallet.fees(ETH_ADDRESS))));
+
+      await truffleAssert.reverts(
+        wallet2Wallet.collectTokens(ETH_ADDRESS, amount, receiver, {from: NOT_OWNER}),
+        'Only owner'
+      );
     });
 
   });
@@ -862,7 +1251,7 @@ contract('test', async (accounts) => {
       const user = accounts[nextAccount++];
       const amount = bn(9000000000000000000);
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user, value: amount});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user, value: amount});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -874,7 +1263,7 @@ contract('test', async (accounts) => {
       const user = accounts[nextAccount++];
       const anotherUser = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWalletFor(wallet2Wallet.address, user, {from: anotherUser});
+      await userWalletFactory.deployUserWalletFor(wallet2Wallet.address, user, ZERO_ADDRESS, {from: anotherUser});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -884,19 +1273,18 @@ contract('test', async (accounts) => {
     it('should not be possible to deploy 2nd user contract for user..', async () => {
       const user = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
 
       await truffleAssert.reverts(
-        userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user})
+        userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user})
       );
-
     });
 
     it('user wallet should be able to receive ETH via direct send ETH.', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(9000000000000000000);
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -910,7 +1298,7 @@ contract('test', async (accounts) => {
       const amount = bn(9000000000000000000);
       const notWalletOwner = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -924,9 +1312,6 @@ contract('test', async (accounts) => {
         userWallet.demandETH(ZERO_BALANCE_ADDRESS, amount, {from: notWalletOwner}),
         'Only W2W or owner'
       );
-
-      assertBNequal(await web3.eth.getBalance(userWalletAddress), amount);
-      assertBNequal(await web3.eth.getBalance(ZERO_BALANCE_ADDRESS), 0);
     });
 
     it('should be possible to demand ETH from owner/w2w.', async () => {
@@ -934,7 +1319,7 @@ contract('test', async (accounts) => {
       const amount = bn(9000000000000000000);
       const wallet2WalletFake = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWallet(wallet2WalletFake, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2WalletFake, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -954,7 +1339,7 @@ contract('test', async (accounts) => {
       const amount = bn(9000000000000000000);
       const notWalletOwner = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -969,16 +1354,13 @@ contract('test', async (accounts) => {
         userWallet.demandERC20(weth.address, ZERO_BALANCE_ADDRESS, amount, {from: notWalletOwner}),
         'Only W2W or owner'
       );
-
-      assertBNequal(await weth.balanceOf(userWalletAddress), amount);
-      assertBNequal(await weth.balanceOf(ZERO_BALANCE_ADDRESS), 0);
     });
 
     it('should be possible to demand tokens from w2w/owner.', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(9000000000000000000);
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -999,7 +1381,7 @@ contract('test', async (accounts) => {
       const amount = bn(9000000000000000000);
       const notOwner = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -1012,8 +1394,6 @@ contract('test', async (accounts) => {
         userWallet.changeOwner(notOwner, {from: notOwner}),
         'Only owner'
       );
-
-      assert.equal(await userWallet.params(OWNER), web3.utils.padLeft(user, 64).toLowerCase());
     });
 
     it('should be possible to change user wallet owner from owner.', async () => {
@@ -1021,7 +1401,7 @@ contract('test', async (accounts) => {
       const amount = bn(9000000000000000000);
       const newOwner = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -1048,8 +1428,7 @@ contract('test', async (accounts) => {
       const notOwner = accounts[nextAccount++];
       const newW2w = accounts[nextAccount++];
 
-
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -1063,9 +1442,23 @@ contract('test', async (accounts) => {
         userWallet.changeParam(W2W, web3.utils.padLeft(newW2w, 64).toLowerCase(), {from: notOwner}),
         'Only owner'
       );
+    });
 
+    it('should not be possible to change referrer.', async () => {
+      const user = accounts[nextAccount++];
+      const referrer = accounts[nextAccount++];
 
-      assert.equal(await userWallet.params(W2W), web3.utils.padLeft(wallet2Wallet.address, 64).toLowerCase());
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, referrer, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+
+      const REFERRER = web3.utils.fromAscii('REFERRER');
+      assert.equal(await userWallet.params(REFERRER), web3.utils.padLeft(referrer, 64).toLowerCase());
+
+      await truffleAssert.reverts(
+        userWallet.changeParam(REFERRER, web3.utils.padLeft(user, 64).toLowerCase(), {from: user}),
+        'Cannot update referrer'
+      );
     });
 
     it('should be possible to change param from owner.', async () => {
@@ -1074,7 +1467,7 @@ contract('test', async (accounts) => {
       const newW2w = accounts[nextAccount++];
 
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -1101,7 +1494,7 @@ contract('test', async (accounts) => {
       const amount = bn(9000000000000000000);
       const notOwner = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -1118,9 +1511,6 @@ contract('test', async (accounts) => {
         userWallet.demand(weth.address, 0, data, {from: notOwner}),
         'Only W2W or owner'
       );
-
-      assertBNequal(await weth.balanceOf(userWalletAddress), amount);
-      assertBNequal(await weth.balanceOf(WETH_ZERO_BALANCE_DEMAND), 0);
     });
 
     it('should be possible to demand custom tokens from w2w/owner via demand() func ', async () => {
@@ -1128,7 +1518,7 @@ contract('test', async (accounts) => {
       const WETH_ZERO_BALANCE_DEMAND = '0xb7e0b2c334c7cebff36fb2ec38c364971630de3d';
       const amount = bn(9000000000000000000);
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -1152,7 +1542,7 @@ contract('test', async (accounts) => {
       const WETH_ZERO_BALANCE_DEMAND_ALL = '0xC9F34644A87ADA5A3DD828EAd834E969364ac861';
       const notOwner = accounts[nextAccount++];
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -1167,9 +1557,6 @@ contract('test', async (accounts) => {
         userWallet.demandAll([weth.address], WETH_ZERO_BALANCE_DEMAND_ALL, {from: notOwner}),
         'Only W2W or owner'
       );
-
-      assertBNequal(await weth.balanceOf(userWalletAddress), amount);
-      assertBNequal(await weth.balanceOf(WETH_ZERO_BALANCE_DEMAND_ALL), 0);
     });
 
     it('should be possible to demand multiple tokens from w2w/owner via demandAll().', async () => {
@@ -1177,7 +1564,7 @@ contract('test', async (accounts) => {
       const amount = bn(9000000000000000000);
       const WETH_ZERO_BALANCE_DEMAND_ALL = '0xC9F34644A87ADA5A3DD828EAd834E969364ac861';
 
-      await userWalletFactory.deployUserWallet(wallet2Wallet.address, {from: user});
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
 
@@ -1193,5 +1580,60 @@ contract('test', async (accounts) => {
       assertBNequal(await weth.balanceOf(WETH_ZERO_BALANCE_DEMAND_ALL), amount);
     });
 
+    it('should allow to deploy new UserWallet instance and init contract.', async () => {
+      const user = accounts[nextAccount++];
+
+      const userWallet = await UserWallet.new();
+
+      const OWNER = web3.utils.fromAscii('OWNER');
+      const W2W = web3.utils.fromAscii('W2W');
+
+      assert.equal(await userWallet.params(OWNER), web3.utils.padLeft(ZERO_ADDRESS, 64).toLowerCase());
+      assert.equal(await userWallet.params(W2W), web3.utils.padLeft(ZERO_ADDRESS, 64).toLowerCase());
+
+      await userWallet.init(wallet2Wallet.address, user, ZERO_ADDRESS);
+
+      assert.equal(await userWallet.params(OWNER), web3.utils.padLeft(user, 64).toLowerCase());
+      assert.equal(await userWallet.params(W2W), web3.utils.padLeft(wallet2Wallet.address, 64).toLowerCase());
+    });
+
+    it('should allow to deploy new UserWallet instance and init contract with sending ETH in init.', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn(9000000000000000000);
+
+      const userWallet = await UserWallet.new();
+
+      const OWNER = web3.utils.fromAscii('OWNER');
+      const W2W = web3.utils.fromAscii('W2W');
+
+      assert.equal(await userWallet.params(OWNER), web3.utils.padLeft(ZERO_ADDRESS, 64).toLowerCase());
+      assert.equal(await userWallet.params(W2W), web3.utils.padLeft(ZERO_ADDRESS, 64).toLowerCase());
+      assertBNequal(await web3.eth.getBalance(userWallet.address), 0);
+
+      await userWallet.init(wallet2Wallet.address, user, ZERO_ADDRESS, { value: amount });
+
+      assertBNequal(await web3.eth.getBalance(userWallet.address), amount);
+      assert.equal(await userWallet.params(OWNER), web3.utils.padLeft(user, 64).toLowerCase());
+      assert.equal(await userWallet.params(W2W), web3.utils.padLeft(wallet2Wallet.address, 64).toLowerCase());
+    });
+
+    it('should not allow to init UserWallet contract 2nd time.', async () => {
+      const user = accounts[nextAccount++];
+
+      const userWallet = await UserWallet.new();
+
+      const OWNER = web3.utils.fromAscii('OWNER');
+      const W2W = web3.utils.fromAscii('W2W');
+
+      await userWallet.init(wallet2Wallet.address, user, ZERO_ADDRESS);
+
+      assert.equal(await userWallet.params(OWNER), web3.utils.padLeft(user, 64).toLowerCase());
+      assert.equal(await userWallet.params(W2W), web3.utils.padLeft(wallet2Wallet.address, 64).toLowerCase());
+
+      await truffleAssert.reverts(
+        userWallet.init(ZERO_ADDRESS, ZERO_ADDRESS, ZERO_ADDRESS),
+        'Already initialized'
+      );
+    });
   });
 });

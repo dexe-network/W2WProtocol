@@ -31,14 +31,14 @@ contract UserWalletFactory is MinimalProxyFactory {
         return IUserWallet(0);
     }
 
-    function deployUserWallet(address _w2w) external payable {
-        deployUserWalletFor(_w2w, msg.sender);
+    function deployUserWallet(address _w2w, address _referrer) external payable {
+        deployUserWalletFor(_w2w, msg.sender, _referrer);
     }
 
-    function deployUserWalletFor(address _w2w, address _owner) public payable {
+    function deployUserWalletFor(address _w2w, address _owner, address _referrer) public payable {
         UserWallet _userWallet = UserWallet(
             _deploy(userWalletPrototype, bytes32(uint(_owner)))
         );
-        _userWallet.init{value: msg.value}(_w2w, _owner);
+        _userWallet.init{value: msg.value}(_w2w, _owner, _referrer);
     }
 }
