@@ -3,7 +3,7 @@ const HDWalletProvider = require("@truffle/hdwallet-provider");
 const Web3 = require('web3');
 
 web3 = new Web3();
-const gasPrice = process.env.GAS_PRICE_GWEI ? web3.utils.toWei(process.env.GAS_PRICE_GWEI) : undefined;
+const gasPrice = process.env.GAS_PRICE_GWEI ? web3.utils.toWei(process.env.GAS_PRICE_GWEI, 'gwei') : undefined;
 
 module.exports = {
   plugins: ["solidity-coverage"],
