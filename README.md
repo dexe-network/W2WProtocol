@@ -45,10 +45,9 @@ User needs to deploy a wallet for himself sending along ETH that will be used to
     owner() view returns(address); // Get current wallet owner.
     params(bytes32 _key) view returns(bytes32); // Get value by an arbitrary key.
 
-## BuyBurner
+## BuyBacker
 
-    approveExchange(IERC20[] _tokens); // Approve tokens for sale with OneSplit.
-    buyBurn(IERC20[] _tokens); // Buy DEXE with OneSplit using all the specified tokens, then burn it.
+    buyBack(IERC20[] _tokens, bytes[] _datas); // Buy DEXE with TradeProvider using all the specified tokens, then keep them store them.
 
 ## Contributing ![JS Code Style](https://img.shields.io/badge/js--style-extends--google-green.svg 'JS Code Style') ![Solidity Code Style](https://img.shields.io/badge/sol--style-ambisafe-red.svg 'Solidity Code Style')
 
