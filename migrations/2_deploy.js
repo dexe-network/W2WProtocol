@@ -16,11 +16,14 @@ module.exports = async function (deployer) {
   const wallet2Wallet = await Wallet2Wallet.deployed();
   await wait(`Wallet2Wallet contract mined ${wallet2Wallet.address}`);
 
-  await deployer.deploy(UserWalletFactory);
-  const userWalletFactory = await UserWalletFactory.deployed();
-  await wait(`UserWalletFactory contract mined ${userWalletFactory.address}`);
-
   await deployer.deploy(Estimator);
   const estimator = await Estimator.deployed();
   await wait(`Estimator contract mined ${estimator.address}`);
+  if (process.env.MODE == '2to3') {
+    return;
+  }
+
+  await deployer.deploy(UserWalletFactory);
+  const userWalletFactory = await UserWalletFactory.deployed();
+  await wait(`UserWalletFactory contract mined ${userWalletFactory.address}`);
 }
