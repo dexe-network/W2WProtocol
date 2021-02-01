@@ -44,9 +44,9 @@ contract UserWallet is IUserWallet, Constants {
     function demandERC20(IERC20 _token, address _recepient, uint _amount) external override onlyW2wOrOwner() {
         uint _thisBalance = _token.balanceOf(address(this));
         if (_thisBalance < _amount) {
-            _token.safeTransferFrom(owner(), address(this), (_amount - _thisBalance));
+            _token.safeTransferFrom(owner(), address(this), (_amount - _thisBalance), '');
         }
-        _token.safeTransfer(_recepient, _amount);
+        _token.safeTransfer(_recepient, _amount, '');
     }
 
     function demandAll(IERC20[] calldata _tokens, address payable _recepient) external override onlyW2wOrOwner() {
@@ -55,7 +55,7 @@ contract UserWallet is IUserWallet, Constants {
             if (_token == ETH) {
                 _recepient.transfer(address(this).balance);
             } else {
-                _token.safeTransfer(_recepient, _token.balanceOf(address(this)));
+                _token.safeTransfer(_recepient, _token.balanceOf(address(this)), '');
             }
         }
     }

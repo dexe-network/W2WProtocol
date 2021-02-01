@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.7.4;
+pragma experimental ABIEncoderV2;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 
-interface IBuyBurner {
-    function approveExchange(IERC20[] calldata _tokens) external;
+interface IBuyBacker {
     receive() payable external;
-    function buyBurn(IERC20[] calldata _tokens) external;
+    function buyBack(IERC20[] calldata _tokens, bytes[] calldata _datas) external;
 }

@@ -1,7 +1,8 @@
-const BuyBurner = artifacts.require('BuyBurner');
+const BuyBacker = artifacts.require('BuyBacker');
 const UserWalletFactory = artifacts.require('UserWalletFactory');
 const Wallet2Wallet = artifacts.require('Wallet2Wallet');
 const UserWallet = artifacts.require('UserWallet');
+const Estimator = artifacts.require('Estimator');
 const ERC20 = artifacts.require('ERC20');
 const Token = artifacts.require('Token');
 const UniRouter = artifacts.require('IUniswapV2Router02');
@@ -12,18 +13,21 @@ const {bn, assertBNequal} = require('./helpers/utils');
 
 contract('test', async (accounts) => {
 
-  let buyBurner;
+  let buyBacker;
   let userWalletFactory;
   let wallet2Wallet;
   let token;
+  let estimator;
 
   let weth;
   let uniRouter;
   let dai;
+  let usdc;
   let dexe;
 
   const WETH_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
   const daiAddress = '0x6b175474e89094c44da98b954eedeac495271d0f';
+  const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
   const routerAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
   const dexeAddress = '0xde4EE8057785A7e8e800Db58F9784845A5C2Cbd6';
   const ZERO_BALANCE_ADDRESS = '0x22b04f58a35d82df5d714376caf218921f75cefb';
@@ -41,14 +45,16 @@ contract('test', async (accounts) => {
   web3.eth.defaultAccount = accounts[0];
 
   before('setup', async () => {
-    buyBurner = await BuyBurner.deployed();
-    await buyBurner.approveExchange([daiAddress, WETH_ADDRESS]);
+    buyBacker = await BuyBacker.deployed();
+    // await buyBacker.approveExchange([daiAddress, WETH_ADDRESS]);
     userWalletFactory = await UserWalletFactory.deployed();
     wallet2Wallet = await Wallet2Wallet.deployed();
+    estimator = await Estimator.deployed();
 
     weth = await ERC20.at(WETH_ADDRESS);
     uniRouter = await UniRouter.at(routerAddress);
     dai = await ERC20.at(daiAddress);
+    usdc = await ERC20.at(usdcAddress);
     dexe = await ERC20.at(dexeAddress);
   });
 
@@ -57,9 +63,16 @@ contract('test', async (accounts) => {
     assert.equal(web3.utils.toAscii('0x' + actualResult[1].slice(138).replace(/00+$/, '')), expectedReason);
   };
 
+  const assertErrorEvent = (actualResult, expectedReason) => {
+    const logs = actualResult.logs.filter(event => event.event === 'Error');
+    assert.isTrue(logs.length > 0, 'No Error events found');
+    const log = logs[0];
+    assert.equal(web3.utils.toAscii('0x' + log.args._error.slice(138).replace(/00+$/, '')), expectedReason);
+  };
+
   const buyAndBurn = async () => {
-    await wallet2Wallet.sendFeeForBurning([daiAddress, ETH_ADDRESS, WETH_ADDRESS, dexeAddress]);
-    await buyBurner.buyBurn([daiAddress, ETH_ADDRESS, WETH_ADDRESS]);
+    await wallet2Wallet.sendFeesToBuyBacker([daiAddress, ETH_ADDRESS, WETH_ADDRESS, dexeAddress]);
+    // await buyBacker.buyBack([daiAddress, ETH_ADDRESS, WETH_ADDRESS]);
   };
 
   describe('Wallet2Wallet', async () => {
@@ -70,7 +83,7 @@ contract('test', async (accounts) => {
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
       await userWallet.send(bn('10000000000000000000'), {from: user});
-      const tSBefore = await dexe.totalSupply();
+      // const tSBefore = await dexe.totalSupply();
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       await wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, FEE, false, bn(3000000),
@@ -81,13 +94,15 @@ contract('test', async (accounts) => {
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
       await buyAndBurn();
-      const tSAfter = await dexe.totalSupply();
+      // const tSAfter = await dexe.totalSupply();
 
-      assert.isTrue(tSBefore.gt(tSAfter));
+      // assert.isTrue(tSBefore.gt(tSAfter));
       assert.isTrue((await dai.balanceOf(userWallet.address)).gt(bn(0)));
-      assertBNequal((await dai.balanceOf(buyBurner.address)), bn(0));
+      assert.isTrue((await dexe.balanceOf(buyBacker.address)).gt(bn(0)));
       assertBNequal((await dai.balanceOf(user)), bn(0));
+      assertBNequal((await dai.balanceOf(buyBacker.address)), bn(0));
       assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
+      assertBNequal((await dexe.balanceOf(wallet2Wallet.address)), bn(0));
     });
 
     it('should be possible to swap eth to token without burn fee and dexe is not burned if fee is set to 0', async () => {
@@ -98,7 +113,7 @@ contract('test', async (accounts) => {
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
       await userWallet.send(bn('10000000000000000000'), {from: user});
-      const tSBefore = await dexe.totalSupply();
+      const buybackDexeBefore = await dexe.balanceOf(buyBacker.address);
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       await wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, zeroFee, false, bn(3000000),
@@ -108,12 +123,13 @@ contract('test', async (accounts) => {
         {gas: bn(3000000)});
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
-      const tSAfter = await dexe.totalSupply();
+      // const tSAfter = await dexe.totalSupply();
 
-      assert.isTrue(tSBefore.eq(tSAfter));
+      // assert.isTrue(buybackDexeBefore.eq(tSAfter));
 
       assert.isTrue((await dai.balanceOf(userWallet.address)).gt(bn(0)));
-      assertBNequal((await dai.balanceOf(buyBurner.address)), bn(0));
+      assertBNequal((await dai.balanceOf(buyBacker.address)), bn(0));
+      assertBNequal((await dexe.balanceOf(buyBacker.address)), buybackDexeBefore);
       assertBNequal((await dai.balanceOf(user)), bn(0));
       assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
     });
@@ -145,7 +161,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
@@ -158,11 +174,73 @@ contract('test', async (accounts) => {
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
+      // assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
       assert.isTrue((await weth.balanceOf(userWallet.address)).gt(bn(0)));
+      assert.isTrue((await dexe.balanceOf(buyBacker.address)).gt(bn(0)));
       assertBNequal((await dai.balanceOf(user)), bn(0));
+      assertBNequal((await dai.balanceOf(buyBacker.address)), bn(0));
+      assertBNequal((await dai.balanceOf(userWallet.address)), bn(0));
+      assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
+    });
+
+    it.skip('should be possible to estimate swaps', async () => {
+      await wallet2Wallet.grantRole(await wallet2Wallet.EXECUTOR_ROLE(), estimator.address);
+      const user = accounts[nextAccount++ +1];
+      const amount = bn('5000000000000000000');
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+
+      await userWallet.send(amount, {from: user});
+
+      // get weth (to token)
+      assertBNequal(await weth.balanceOf(user), 0);
+      await weth.send(amount, {from: user});
+      assertBNequal(await weth.balanceOf(user), amount);
+
+      // get dai (from token)
+      assertBNequal(await dai.balanceOf(user), 0);
+
+      await weth.approve(uniRouter.address, amount, {from: user});
+      await uniRouter.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], user, Math.floor(Date.now() / 1000) + 86400, {from: user})
+
+      assertBNequal(await weth.balanceOf(user), 0);
+      assert.isTrue((await dai.balanceOf(user)).gt(0));
+
+      // DAI to WETH
+      const daiAmount = await dai.balanceOf(user);
+      await dai.approve(uniRouter.address, daiAmount, {from: user});
+
+      // const dexeSupplyBefore = await dexe.totalSupply();
+
+      await dai.approve(userWallet.address, daiAmount, {from: user});
+
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+      const data = wallet2Wallet.contract.methods.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
+        routerAddress, routerAddress,
+        uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()]).encodeABI();
+      const estimate = await estimator.estimate.call(wallet2Wallet.address, data, {gas: bn(3000000)});
+      const estimate2 = await estimator.estimate.estimateGas(wallet2Wallet.address, data, {gas: bn(3000000)});
+      assert.isTrue(bn(estimate2).gt(estimate));
+      console.log(estimate.toString(), estimate2.toString());
+      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, estimate.add(bn(30000)),
+        routerAddress, routerAddress,
+        uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: estimate.add(bn(30000))});
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+
+      await buyAndBurn();
+      // const dexeSupplyAfter = await dexe.totalSupply();
+
+      // assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
+      assert.isTrue((await weth.balanceOf(userWallet.address)).gt(bn(0)));
+      assert.isTrue((await dexe.balanceOf(buyBacker.address)).gt(bn(0)));
+      assertBNequal((await dai.balanceOf(user)), bn(0));
+      assertBNequal((await dai.balanceOf(buyBacker.address)), bn(0));
       assertBNequal((await dai.balanceOf(userWallet.address)), bn(0));
       assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
     });
@@ -190,12 +268,13 @@ contract('test', async (accounts) => {
 
       assertBNequal(await weth.balanceOf(user), 0);
       assert.isTrue((await dai.balanceOf(user)).gt(0));
+      assertBNequal(await weth.balanceOf(userWallet.address), 0);
 
       // DAI to WETH
       const daiAmount = await dai.balanceOf(user);
-      await dai.approve(uniRouter.address, daiAmount, {from: user});
+      // await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
@@ -208,9 +287,9 @@ contract('test', async (accounts) => {
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
+      // assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
       assert.isTrue((await weth.balanceOf(userWallet.address)).gt(bn(0)));
       assertBNequal((await dai.balanceOf(user)), bn(0));
       assertBNequal((await dai.balanceOf(userWallet.address)), bn(0));
@@ -225,7 +304,7 @@ contract('test', async (accounts) => {
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
       await userWallet.send(bn('10000000000000000000'), {from: user});
-      const tSBefore = await dexe.totalSupply();
+      // const tSBefore = await dexe.totalSupply();
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
 
@@ -237,7 +316,7 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {gas: bn(3000000)}),
-        'Fee is too high'
+        'W2W:Fee is too high'
       )
     });
 
@@ -268,30 +347,24 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount.add(bn(1)), {from: user});
 
-      const result = await wallet2Wallet.makeSwap.call([userWallet.address, dai.address, daiAmount.add(bn(1)), weth.address, 0, FEE, false, bn(3000000),
-        routerAddress, routerAddress,
-        uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
-          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
-        {gas: bn(3000000)});
-
-      assertErrorReason(result, 'Dai/insufficient-balance');
-
-      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount.add(bn(1)), weth.address, 0, FEE, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount.add(bn(1)), weth.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)})
 
+      assertErrorEvent(result, 'ERC20 transferFrom failed');
+
       assertBNequal((await dai.balanceOf(user)), daiAmount);
 
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
+      // assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
     });
 
 
@@ -323,7 +396,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
@@ -338,7 +411,7 @@ contract('test', async (accounts) => {
     });
 
     it('should NOT be possible to swap via makeSwap on w2w weth (direct pair) if not enough tokens inside uniswap swapExactTokensForTokens call data', async () => {
-      const user = accounts[nextAccount++];
+      const user = accounts[nextAccount++ +6];
       const amount = bn('5000000000000000000');
       await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
@@ -362,32 +435,34 @@ contract('test', async (accounts) => {
 
       // DAI to WETH
       const daiAmount = await dai.balanceOf(user);
-      await dai.approve(uniRouter.address, daiAmount, {from: user});
+      // await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
-      await dai.approve(userWallet.address, daiAmount.add(bn(1)), {from: user});
+      await dai.approve(userWallet.address, daiAmount, {from: user});
 
-      const result = await wallet2Wallet.makeSwap.call([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
-        routerAddress, routerAddress,
-        uniRouter.contract.methods.swapExactTokensForTokens(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
-          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
-        {gas: bn(3000000)});
+      // const result = await wallet2Wallet.makeSwap.call([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
+      //   routerAddress, routerAddress,
+      //   uniRouter.contract.methods.swapExactTokensForTokens(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
+      //     wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+      //   {gas: bn(3000000)});
 
-      assertErrorReason(result, 'TransferHelper: TRANSFER_FROM_FAILED');
+      // seems that ganache is broken.
+      // assertErrorReason(result, 'TransferHelper: TRANSFER_FROM_FAILED');
 
-      await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwap([userWallet.address, dai.address, daiAmount, weth.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForTokens(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)})
+      assertErrorEvent(result, 'TransferHelper: TRANSFER_FROM_FAILED');
 
       assertBNequal((await dai.balanceOf(user)), daiAmount);
 
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
+      // assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
     });
 
 
@@ -416,7 +491,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
@@ -429,9 +504,9 @@ contract('test', async (accounts) => {
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
+      // assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
       assertBNequal((await weth.balanceOf(userWallet.address)), bn(0));
       assertBNequal((await dai.balanceOf(user)), bn(0));
       assertBNequal((await dai.balanceOf(userWallet.address)), bn(0));
@@ -464,7 +539,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
@@ -477,9 +552,9 @@ contract('test', async (accounts) => {
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
+      // assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
       assertBNequal((await weth.balanceOf(userWallet.address)), bn(0));
       assertBNequal((await dai.balanceOf(user)), bn(0));
       assertBNequal((await dai.balanceOf(userWallet.address)), bn(0));
@@ -511,28 +586,21 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount.add(bn(1)), {from: user});
 
-      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount.add(bn(1)), 0, FEE, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount.add(bn(1)), 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
 
-      assertErrorReason(result, 'Dai/insufficient-balance');
-
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount.add(bn(1)), 0, FEE, false, bn(3000000),
-        routerAddress, routerAddress,
-        uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
-          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
-        {gas: bn(3000000)});
-
+      assertErrorEvent(result, 'ERC20 transferFrom failed');
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
+      // assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
     });
 
     it('should NOT be possible to swap token to eth (direct pair) via makeSwapTokensForETH on w2w if not enough tokens inside uniswap swapExactTokensForETH call data', async () => {
@@ -560,28 +628,21 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount.add(bn(1)), {from: user});
 
-      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
 
-      assertErrorReason(result, 'TransferHelper: TRANSFER_FROM_FAILED');
-
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
-        routerAddress, routerAddress,
-        uniRouter.contract.methods.swapExactTokensForETH(daiAmount.add(bn(1)), 0, [dai.address, weth.address],
-          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
-        {gas: bn(3000000)});
-
+      assertErrorEvent(result, 'TransferHelper: TRANSFER_FROM_FAILED');
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
+      // assert.isTrue(dexeSupplyBefore.eq(dexeSupplyAfter));
     });
 
     it('should NOT be possible to swap token to eth (direct pair) via makeSwapTokensForETH on w2w if user fee more than allowed provided', async () => {
@@ -610,7 +671,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
@@ -620,7 +681,7 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {gas: bn(3000000)}),
-        'Fee is too high'
+        'W2W:Fee is too high'
       );
     });
 
@@ -642,10 +703,11 @@ contract('test', async (accounts) => {
       const wethAmount = await weth.balanceOf(user);
       await weth.approve(uniRouter.address, wethAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await weth.approve(userWallet.address, wethAmount, {from: user});
 
+      const buybackDexeBefore = await dexe.balanceOf(buyBacker.address);
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       await wallet2Wallet.makeSwap([userWallet.address, weth.address, wethAmount, dexe.address, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
@@ -655,9 +717,9 @@ contract('test', async (accounts) => {
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
       await buyAndBurn();
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assert.isTrue(dexeSupplyBefore.gt(dexeSupplyAfter));
+      assert.isTrue((await dexe.balanceOf(buyBacker.address)).gt(buybackDexeBefore));
       assert.isTrue((await dexe.balanceOf(userWallet.address)).gt(bn(0)));
       assertBNequal((await weth.balanceOf(user)), bn(0));
       assertBNequal((await weth.balanceOf(userWallet.address)), bn(0));
@@ -686,32 +748,26 @@ contract('test', async (accounts) => {
 
       // DAI to WETH
       const daiAmount = await dai.balanceOf(user);
-      await dai.approve(uniRouter.address, daiAmount, {from: user});
+      // await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
       const balanceBefore = await web3.eth.getBalance(userWallet.address);
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       // Using wrong uniswap path to get an error.
-      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, '10000000000000000000000', [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
-
-      assertErrorReason(result, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, 0, FEE, false, bn(3000000),
-        routerAddress, routerAddress,
-        uniRouter.contract.methods.swapExactTokensForETH(daiAmount, '10000000000000000000000', [dai.address, weth.address],
-          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
-        {gas: bn(3000000)});
+      assertErrorEvent(result, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assertBNequal(dexeSupplyBefore, dexeSupplyAfter);
+      // assertBNequal(dexeSupplyBefore, dexeSupplyAfter);
       assert.isTrue((await web3.eth.getBalance(userWallet.address)) < balanceBefore);
     });
 
@@ -740,30 +796,24 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
       const balanceBefore = await web3.eth.getBalance(userWallet.address);
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       // Using wrong uniswap path to get an error.
-      const result = await wallet2Wallet.makeSwapTokensForETH.call([userWallet.address, dai.address, daiAmount, '10000000000000000000000', FEE, false, bn(3000000),
+      const result = await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, '10000000000000000000000', FEE, false, bn(3000000),
         routerAddress, routerAddress,
         uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
-
-      assertErrorReason(result, 'Less than minimum received');
-      await wallet2Wallet.makeSwapTokensForETH([userWallet.address, dai.address, daiAmount, '10000000000000000000000', FEE, false, bn(3000000),
-        routerAddress, routerAddress,
-        uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
-          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
-        {gas: bn(3000000)});
+      assertErrorEvent(result, 'W2W:Less than minimum received');
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
-      const dexeSupplyAfter = await dexe.totalSupply();
+      // const dexeSupplyAfter = await dexe.totalSupply();
 
-      assertBNequal(dexeSupplyBefore, dexeSupplyAfter);
+      // assertBNequal(dexeSupplyBefore, dexeSupplyAfter);
       assert.isTrue((await web3.eth.getBalance(userWallet.address)) < balanceBefore);
     });
 
@@ -773,7 +823,7 @@ contract('test', async (accounts) => {
       await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user, value: bn('10000000000000000000')});
       const userWalletAddress = await userWalletFactory.getUserWallet(user);
       const userWallet = await UserWallet.at(userWalletAddress);
-      const tSBefore = await dexe.totalSupply();
+      // const tSBefore = await dexe.totalSupply();
 
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       await wallet2Wallet.makeSwapETHForTokens([userWallet.address, amount, daiAddress, 0, FEE, true, bn(3000000),
@@ -784,17 +834,17 @@ contract('test', async (accounts) => {
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
 
       await buyAndBurn();
-      const tSAfter = await dexe.totalSupply();
+      // const tSAfter = await dexe.totalSupply();
 
-      assert.isTrue(tSBefore.gt(tSAfter));
+      // assert.isTrue(tSBefore.gt(tSAfter));
       assert.isTrue((await dai.balanceOf(user)).gt(bn(0)));
-      assertBNequal((await dai.balanceOf(buyBurner.address)), bn(0));
-      assertBNequal((await dexe.balanceOf(buyBurner.address)), bn(0));
+      assert.isTrue((await dexe.balanceOf(buyBacker.address)).gt(bn(0)));
+      assertBNequal((await dai.balanceOf(buyBacker.address)), bn(0));
       assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
       assertBNequal((await dai.balanceOf(userWallet.address)), bn(0));
     });
 
-    it('should swap to unknown token and send fee to buy burner', async () => {
+    it('should swap to unknown token and send fee to buy backer', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('9000000000000000000');
       token = await Token.new(amount);
@@ -810,7 +860,8 @@ contract('test', async (accounts) => {
       await token.approve(uniRouter.address, amount);
       await uniRouter.addLiquidity(token.address, daiAddress, amount, amount, 1, 1, EXECUTOR, Date.now());
 
-      const tSBefore = await dexe.totalSupply();
+      // const tSBefore = await dexe.totalSupply();
+      const buybackDexeBefore = await dexe.balanceOf(buyBacker.address);
       const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
       await wallet2Wallet.makeSwap([userWallet.address, daiAddress, amount, token.address, 0, FEE, false, bn(3000000),
         uniRouter.address, uniRouter.address,
@@ -818,20 +869,64 @@ contract('test', async (accounts) => {
           wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
         {gas: bn(3000000)});
       assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
-      await wallet2Wallet.sendFeeForBurning([token.address]);
-      const tSAfter = await dexe.totalSupply();
+      await wallet2Wallet.sendFeesToBuyBacker([token.address]);
+      // const tSAfter = await dexe.totalSupply();
 
-      assertBNequal(tSBefore, tSAfter);
+      // assertBNequal(tSBefore, tSAfter);
       assert.isTrue((await token.balanceOf(userWallet.address)).gt(bn(0)));
-      assert.isTrue((await token.balanceOf(buyBurner.address)).gt(bn(0)));
-      assertBNequal((await dai.balanceOf(buyBurner.address)), bn(0));
-      assertBNequal((await dexe.balanceOf(buyBurner.address)), bn(0));
+      assert.isTrue((await token.balanceOf(buyBacker.address)).gt(bn(0)));
+      assertBNequal((await dai.balanceOf(buyBacker.address)), bn(0));
+      assertBNequal((await dexe.balanceOf(buyBacker.address)), buybackDexeBefore);
       assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
 
       // OneSplit fails to find a path Token -> Dai -> ETH -> Dexe.
-      // console.log((await token.balanceOf(buyBurner.address)).toString());
-      // await buyBurner.approveExchange([token.address]);
-      // await buyBurner.buyBurn([token.address]);
+      // console.log((await token.balanceOf(buyBacker.address)).toString());
+      // await buyBacker.approveExchange([token.address]);
+      // await buyBacker.buyBack([token.address]);
+
+      // const tSAfterBurn = await dexe.totalSupply();
+      // assert.isTrue(tSBefore.gt(tSAfterBurn));
+    });
+
+    it('should swap to unknown token and send dexe (deep swap) to buy backer', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn('9000000');
+      token = await Token.new(amount);
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+      await userWallet.send(bn('10000000000000000000'), {from: user});
+
+      await uniRouter.swapExactETHForTokens(amount, [weth.address, usdc.address], EXECUTOR,
+        Math.floor(Date.now() / 1000) + 86400, {from: user, value: bn('1000000000000000000'), gas: bn(3000000)});
+      await usdc.transfer(userWallet.address, amount);
+      await usdc.approve(uniRouter.address, amount);
+      await token.approve(uniRouter.address, amount);
+      await uniRouter.addLiquidity(token.address, usdc.address, amount, amount, 1, 1, EXECUTOR, Date.now());
+
+      // const tSBefore = await dexe.totalSupply();
+      const buybackDexeBefore = await dexe.balanceOf(buyBacker.address);
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+      await wallet2Wallet.makeSwap([userWallet.address, usdc.address, amount, token.address, 0, FEE, false, bn(3000000),
+        uniRouter.address, uniRouter.address,
+        uniRouter.contract.methods.swapExactTokensForTokens(amount, 0, [usdc.address, token.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: bn(3000000)});
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+      // await wallet2Wallet.sendFeesToBuyBacker([token.address]);
+      // const tSAfter = await dexe.totalSupply();
+
+      // assertBNequal(tSBefore, tSAfter);
+      assert.isTrue((await token.balanceOf(userWallet.address)).gt(bn(0)));
+      assert.isTrue((await dexe.balanceOf(buyBacker.address)).gt(buybackDexeBefore));
+      assertBNequal((await dai.balanceOf(buyBacker.address)), bn(0));
+      assertBNequal((await token.balanceOf(buyBacker.address)), bn(0));
+      assertBNequal((await dexe.balanceOf(userWallet.address)), bn(0));
+
+      // OneSplit fails to find a path Token -> Dai -> ETH -> Dexe.
+      // console.log((await token.balanceOf(buyBacker.address)).toString());
+      // await buyBacker.approveExchange([token.address]);
+      // await buyBacker.buyBack([token.address]);
 
       // const tSAfterBurn = await dexe.totalSupply();
       // assert.isTrue(tSBefore.gt(tSAfterBurn));
@@ -862,11 +957,11 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {from: NOT_EXECUTOR, gas: bn(3000000)}),
-        'Only Executor'
+        'W2W:Only Executor'
       );
     });
 
-    it('should not be possible to swap eth to token for not executor if user wallet does not have enough ETH', async () => {
+    it('should not be possible to swap eth to token if user wallet does not have enough ETH', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(3000000).mul(GAS_PRICE).sub(bn(1));
       await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
@@ -891,7 +986,7 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {gas: bn(3000000)}),
-        'Not enough ETH in UserWallet'
+        'W2W:Not enough ETH in UserWallet'
       );
     });
 
@@ -909,11 +1004,11 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {from: NOT_EXECUTOR, gas: bn(3000000)}),
-        'Only Executor'
+        'W2W:Only Executor'
       );
     });
 
-    it('should not be possible to makeSwapETHForTokens for not executor if user wallet does not have enough ETH', async () => {
+    it('should not be possible to makeSwapETHForTokens if user wallet does not have enough ETH', async () => {
       const user = accounts[nextAccount++];
       const amountFrom = bn(9000000000000000000);
       const amount = bn(3000000).mul(GAS_PRICE).add(amountFrom).sub(bn(1));
@@ -930,7 +1025,7 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {gas: bn(3000000)}),
-        'Not enough ETH in UserWallet'
+        'W2W:Not enough ETH in UserWallet'
       );
     });
 
@@ -959,11 +1054,11 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {from: NOT_EXECUTOR, gas: bn(3000000)}),
-        'Only Executor'
+        'W2W:Only Executor'
       );
     });
 
-    it('should not be possible to makeSwapTokensForETH for not executor if user wallet does not have enough ETH', async () => {
+    it('should not be possible to makeSwapTokensForETH if user wallet does not have enough ETH', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(3000000).mul(GAS_PRICE).sub(bn(1));
       await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
@@ -988,7 +1083,7 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {gas: bn(3000000)}),
-        'Not enough ETH in UserWallet'
+        'W2W:Not enough ETH in UserWallet'
       );
     });
 
@@ -1018,7 +1113,7 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactTokensForTokens(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {gas: bn(3000000)}),
-        'Only this contract'
+        'W2W:Only this contract'
       );
 
       await truffleAssert.reverts(
@@ -1027,7 +1122,7 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactETHForTokens(0, [weth.address, daiAddress],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {gas: bn(3000000)}),
-        'Only this contract'
+        'W2W:Only this contract'
       );
 
       await truffleAssert.reverts(
@@ -1036,7 +1131,7 @@ contract('test', async (accounts) => {
           uniRouter.contract.methods.swapExactTokensForETH(daiAmount, 0, [dai.address, weth.address],
             wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
           {gas: bn(3000000)}),
-        'Only this contract'
+        'W2W:Only this contract'
       );
     });
 
@@ -1066,7 +1161,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
@@ -1083,7 +1178,7 @@ contract('test', async (accounts) => {
 
       await truffleAssert.reverts(
         wallet2Wallet.collectTokens(weth.address, amount.add(bn(1)), receiver),
-        'Insufficient extra tokens'
+        'W2W:Insufficient extra tokens'
       );
 
       await wallet2Wallet.collectTokens(weth.address, amount, receiver),
@@ -1118,7 +1213,7 @@ contract('test', async (accounts) => {
       const daiAmount = await dai.balanceOf(user);
       await dai.approve(uniRouter.address, daiAmount, {from: user});
 
-      const dexeSupplyBefore = await dexe.totalSupply();
+      // const dexeSupplyBefore = await dexe.totalSupply();
 
       await dai.approve(userWallet.address, daiAmount, {from: user});
 
@@ -1134,7 +1229,7 @@ contract('test', async (accounts) => {
 
       await truffleAssert.reverts(
         wallet2Wallet.collectTokens(ETH_ADDRESS, amount.add(bn(1)), receiver),
-        'Insufficient extra ETH'
+        'W2W:Insufficient extra ETH'
       );
 
       await wallet2Wallet.collectTokens(ETH_ADDRESS, amount, receiver),
@@ -1178,7 +1273,7 @@ contract('test', async (accounts) => {
 
       await truffleAssert.reverts(
         wallet2Wallet.collectTokens(weth.address, amount, receiver, {from: NOT_OWNER}),
-        'Only owner'
+        'W2W:Only owner'
       );
     });
 
@@ -1212,14 +1307,15 @@ contract('test', async (accounts) => {
 
       await truffleAssert.reverts(
         wallet2Wallet.collectTokens(ETH_ADDRESS, amount, receiver, {from: NOT_OWNER}),
-        'Only owner'
+        'W2W:Only owner'
       );
     });
 
+
   });
 
-  describe('BuyBurner', async () => {
-    it('buyBurn', async () => {
+  describe('BuyBacker', async () => {
+    it.skip('buyBack', async () => {
       const user = accounts[nextAccount++];
       const amount = bn(1000000000000000000);
 
@@ -1228,21 +1324,21 @@ contract('test', async (accounts) => {
       await uniRouter.swapExactETHForTokens(amount, [weth.address, dexe.address], user,
         Math.floor(Date.now() / 1000) + 86400, {from: user, value: amount, gas: bn(3000000)});
 
-      await dai.transfer(buyBurner.address, await dai.balanceOf(user), {from: user});
-      let tSBefore = await dexe.totalSupply();
-      await buyBurner.approveExchange([dai.address]);
-      await buyBurner.buyBurn([dai.address]);
-      let tSAfter = await dexe.totalSupply();
-      assert.isTrue(tSBefore.gt(tSAfter));
-      assertBNequal(await dai.balanceOf(buyBurner.address), 0);
+      await dai.transfer(buyBacker.address, await dai.balanceOf(user), {from: user});
+      // let tSBefore = await dexe.totalSupply();
+      // await buyBacker.approveExchange([dai.address]);
+      await buyBacker.buyBack([dai.address], ['0x']);
+      // let tSAfter = await dexe.totalSupply();
+      // assert.isTrue(tSBefore.gt(tSAfter));
+      assertBNequal(await dai.balanceOf(buyBacker.address), 0);
 
-      await dexe.transfer(buyBurner.address, amount, {from: user});
-      tSBefore = await dexe.totalSupply();
-      await buyBurner.buyBurn([dexe.address]);
-      tSAfter = await dexe.totalSupply();
-      assert.isTrue(tSBefore.gt(tSAfter));
+      await dexe.transfer(buyBacker.address, amount, {from: user});
+      // tSBefore = await dexe.totalSupply();
+      await buyBacker.buyBack([dexe.address], ['0x']);
+      // tSAfter = await dexe.totalSupply();
+      // assert.isTrue(tSBefore.gt(tSAfter));
 
-      await buyBurner.buyBurn([weth.address]);
+      await buyBacker.buyBack([weth.address]);
     });
   });
 

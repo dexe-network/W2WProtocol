@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.7.4;
+pragma experimental ABIEncoderV2;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import '@openzeppelin/contracts/math/SafeMath.sol';
-import '@openzeppelin/contracts/utils/Address.sol';
 
 /**
  * @notice Based on @openzeppelin SafeERC20.
@@ -16,36 +15,37 @@ import '@openzeppelin/contracts/utils/Address.sol';
  * which allows you to call the safe operations as `token.safeTransfer(...)`, etc.
  */
 library SafeERC20 {
-    using SafeMath for uint256;
-    using Address for address;
-
-    function safeTransfer(IERC20 token, address to, uint256 value) internal {
-        _callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value));
+    function safeTransfer(IERC20 token, address to, uint256 value, bytes memory errPrefix) internal {
+        require(_callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value)),
+            string(abi.encodePacked(errPrefix, 'ERC20 transfer failed')));
     }
 
-    function safeTransferFrom(IERC20 token, address from, address to, uint256 value) internal {
-        _callOptionalReturn(token, abi.encodeWithSelector(token.transferFrom.selector, from, to, value));
+    function safeTransferFrom(IERC20 token, address from, address to, uint256 value, bytes memory errPrefix) internal {
+        require(_callOptionalReturn(token, abi.encodeWithSelector(token.transferFrom.selector, from, to, value)),
+            string(abi.encodePacked(errPrefix, 'ERC20 transferFrom failed')));
     }
 
-    function safeApprove(IERC20 token, address spender, uint256 value) internal {
-        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value));
-    }
-
-    /**
-     * @dev Imitates a Solidity high-level call (i.e. a regular function call to a contract), relaxing the requirement
-     * on the return value: the return value is optional (but if data is returned, it must not be false).
-     * @param token The token targeted by the call.
-     * @param data The call data (encoded using abi.encode or one of its variants).
-     */
-    function _callOptionalReturn(IERC20 token, bytes memory data) private {
-        // We need to perform a low level call here, to bypass Solidity's return data size checking mechanism, since
-        // we're implementing it ourselves. We use {Address.functionCall} to perform this call, which verifies that
-        // the target address contains contract code and also asserts for success in the low-level call.
-
-        bytes memory returndata = address(token).functionCall(data, "SafeERC20: low-level call failed");
-        if (returndata.length > 0) { // Return data is optional
-            // solhint-disable-next-line max-line-length
-            require(abi.decode(returndata, (bool)), "SafeERC20: ERC20 operation did not succeed");
+    function safeApprove(IERC20 token, address spender, uint256 value, bytes memory errPrefix) internal {
+        if (_callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value))) {
+            return;
         }
+        require(_callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, 0))
+            && _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value)),
+            string(abi.encodePacked(errPrefix, 'ERC20 approve failed')));
+    }
+
+    function _callOptionalReturn(IERC20 token, bytes memory data) private returns(bool) {
+        // solhint-disable-next-line avoid-low-level-calls
+        (bool success, bytes memory returndata) = address(token).call(data);
+        if (!success) {
+            return false;
+        }
+
+        if (returndata.length >= 32) { // Return data is optional
+            return abi.decode(returndata, (bool));
+        }
+
+        // In a wierd case when return data is 1-31 bytes long - return false.
+        return returndata.length == 0;
     }
 }
