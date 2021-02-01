@@ -18,6 +18,7 @@ module.exports = async function (deployer) {
 
   await deployer.deploy(Estimator);
   const estimator = await Estimator.deployed();
+  await wallet2Wallet.grantRole(await wallet2Wallet.EXECUTOR_ROLE(), estimator.address);
   await wait(`Estimator contract mined ${estimator.address}`);
   if (process.env.MODE == '2to3') {
     return;
