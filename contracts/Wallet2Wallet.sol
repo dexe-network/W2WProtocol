@@ -80,6 +80,7 @@ contract Wallet2Wallet is AccessControl, Constants {
     }
 
     event Error(bytes _error);
+    event Copy(IUserWallet _user, IERC20 _tokenFrom, uint _amountFrom, IERC20 _tokenTo, uint _amountTo);
 
     modifier onlyOwner() {
         require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), 'W2W:Only owner');
@@ -179,6 +180,7 @@ contract Wallet2Wallet is AccessControl, Constants {
         uint _userGetsAmount = _saveFee(_request.tokenTo, _balanceThis, _request.fee);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount, 'W2W:');
+        emit Copy(_request.user, _request.tokenFrom, _request.amountFrom, _request.tokenTo, _userGetsAmount);
     }
 
     function _executeETHForTokens(RequestETHForTokens memory _request) external onlyThis() {
@@ -191,6 +193,7 @@ contract Wallet2Wallet is AccessControl, Constants {
         uint _userGetsAmount = _saveFee(_request.tokenTo, _balanceThis, _request.fee);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount, 'W2W:');
+        emit Copy(_request.user, ETH, _request.amountFrom, _request.tokenTo, _userGetsAmount);
     }
 
     function _executeTokensForETH(RequestTokensForETH memory _request) external onlyThis() {
@@ -204,6 +207,7 @@ contract Wallet2Wallet is AccessControl, Constants {
         uint _userGetsAmount = _saveFee(ETH, _balanceThis, _request.fee);
         address payable _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _userGetsTo.transfer(_userGetsAmount);
+        emit Copy(_request.user, _request.tokenFrom, _request.amountFrom, ETH, _userGetsAmount);
     }
 
     function _saveFee(IERC20 _token, uint _amount, uint _feePercent) internal returns(uint) {
