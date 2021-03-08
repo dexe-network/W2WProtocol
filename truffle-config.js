@@ -18,8 +18,15 @@ module.exports = {
     mainnet: { // truffle deploy --network mainnet --reset
       provider: () => new HDWalletProvider(process.env.PRIVATE_KEY, process.env.RPC_URL),
       network_id: 1,
-      gasPrice: gasPrice,
-      gas: 4000000,
+      gasPrice,
+      gas: 6000000,
+      skipDryRun: true,
+    },
+    bsc: { // truffle deploy --network bsc --reset
+      provider: () => new HDWalletProvider(process.env.PRIVATE_KEY, process.env.RPC_URL),
+      network_id: 56,
+      gasPrice,
+      gas: 6000000,
       skipDryRun: true,
     },
   },

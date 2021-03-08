@@ -5,15 +5,30 @@ const UserWalletFactory = artifacts.require('UserWalletFactory');
 const Wallet2Wallet = artifacts.require('Wallet2Wallet');
 const Estimator = artifacts.require('Estimator');
 
+const BSCBuyBacker = artifacts.require('BSCBuyBacker');
+const BSCWallet2Wallet = artifacts.require('BSCWallet2Wallet');
+
 const wait = async (param) => {console.log(`Mined: ${param}`); await delay(1000);};
 
-module.exports = async function (deployer) {
-  await deployer.deploy(BuyBacker);
-  const buyBacker = await BuyBacker.deployed();
+module.exports = async function (deployer, network) {
+  let buyBacker;
+  if (network == 'bsc') {
+    await deployer.deploy(BSCBuyBacker);
+    buyBacker = await BSCBuyBacker.deployed();
+  } else {
+    await deployer.deploy(BuyBacker);
+    buyBacker = await BuyBacker.deployed();
+  }
   await wait(`BuyBacker contract mined ${buyBacker.address}`);
 
-  await deployer.deploy(Wallet2Wallet, buyBacker.address);
-  const wallet2Wallet = await Wallet2Wallet.deployed();
+  let wallet2Wallet;
+  if (network == 'bsc') {
+    await deployer.deploy(BSCWallet2Wallet, buyBacker.address);
+    wallet2Wallet = await BSCWallet2Wallet.deployed();
+  } else {
+    await deployer.deploy(Wallet2Wallet, buyBacker.address);
+    wallet2Wallet = await Wallet2Wallet.deployed();
+  }
   await wait(`Wallet2Wallet contract mined ${wallet2Wallet.address}`);
 
   await deployer.deploy(Estimator);

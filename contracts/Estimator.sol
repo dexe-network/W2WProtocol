@@ -10,7 +10,7 @@ contract Estimator {
         require(_w2w.hasRole(EXECUTOR_ROLE, msg.sender), 'EST:Only Executor');
         uint gasUsed = gasleft();
         (bool success, bytes memory result) = address(_w2w).call(_data);
-        gasUsed = gasUsed - gasleft();
+        gasUsed = gasUsed - gasleft() + (_data.length * 16) + 21000;
         RevertPropagation._require(success, result);
         (success, result) = abi.decode(result, (bool, bytes));
         RevertPropagation._require(success, result);

@@ -210,7 +210,7 @@ contract Wallet2Wallet is AccessControl, Constants {
         emit Copy(_request.user, _request.tokenFrom, _request.amountFrom, ETH, _userGetsAmount);
     }
 
-    function _saveFee(IERC20 _token, uint _amount, uint _feePercent) internal returns(uint) {
+    function _saveFee(IERC20 _token, uint _amount, uint _feePercent) internal virtual returns(uint) {
         if (_feePercent == 0) {
             return _amount;
         }

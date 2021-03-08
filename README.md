@@ -16,7 +16,7 @@ $ npm install
  4. Set PRIVATE_KEY in .env file
  5. Set RPC_URL in .env file
  6. If updating from v2 to v3 set MODE='2to3' in .env file
- 7. run: npm run mainnet-deploy
+ 7. run: npm run mainnet-deploy or npm run bsc-deploy
 
 ## Running tests
 
