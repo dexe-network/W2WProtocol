@@ -888,6 +888,43 @@ contract('test', async (accounts) => {
       // assert.isTrue(tSBefore.gt(tSAfterBurn));
     });
 
+    it('should swap to unknown token twice and keep the fee', async () => {
+      const user = accounts[nextAccount++];
+      const amount = bn('9000000000000000000');
+      token = await Token.new(amount);
+      await userWalletFactory.deployUserWallet(wallet2Wallet.address, ZERO_ADDRESS, {from: user});
+      const userWalletAddress = await userWalletFactory.getUserWallet(user);
+      const userWallet = await UserWallet.at(userWalletAddress);
+      await userWallet.send(bn('10000000000000000000'), {from: user});
+
+      await uniRouter.swapExactETHForTokens(amount, [weth.address, dai.address], EXECUTOR,
+        Math.floor(Date.now() / 1000) + 86400, {from: user, value: amount, gas: bn(3000000)});
+      await dai.transfer(userWallet.address, amount.mul(bn(2)));
+      await dai.approve(uniRouter.address, amount);
+      await token.approve(uniRouter.address, amount);
+      await uniRouter.addLiquidity(token.address, daiAddress, amount, amount, 1, 1, EXECUTOR, Date.now());
+
+      const buybackDexeBefore = await dexe.balanceOf(buyBacker.address);
+      const executorBalanceBefore = await web3.eth.getBalance(EXECUTOR);
+      await wallet2Wallet.makeSwap([userWallet.address, daiAddress, amount, token.address, 0, FEE, false, bn(3000000),
+        uniRouter.address, uniRouter.address,
+        uniRouter.contract.methods.swapExactTokensForTokens(amount, 0, [daiAddress, token.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: bn(3000000)});
+      assert.isTrue((await web3.eth.getBalance(EXECUTOR)) >= executorBalanceBefore);
+
+      const w2wTokenBalanceBefore = await token.balanceOf(wallet2Wallet.address);
+      const userWalletBalanceBefore = await token.balanceOf(userWallet.address);
+      await wallet2Wallet.makeSwap([userWallet.address, daiAddress, amount, token.address, 0, FEE, false, bn(3000000),
+        uniRouter.address, uniRouter.address,
+        uniRouter.contract.methods.swapExactTokensForTokens(amount, 0, [daiAddress, token.address],
+          wallet2Wallet.address, Math.floor(Date.now() / 1000) + 86400).encodeABI()],
+        {gas: bn(3000000)});
+
+      assert.isTrue((await token.balanceOf(userWallet.address)).gt(userWalletBalanceBefore));
+      assert.isTrue((await token.balanceOf(wallet2Wallet.address)).gt(w2wTokenBalanceBefore));
+    });
+
     it('should swap to unknown token and send dexe (deep swap) to buy backer', async () => {
       const user = accounts[nextAccount++];
       const amount = bn('9000000');

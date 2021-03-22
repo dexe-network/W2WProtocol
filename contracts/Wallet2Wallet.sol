@@ -175,9 +175,9 @@ contract Wallet2Wallet is AccessControl, Constants {
 
         (bool _success, bytes memory _reason) = _request.target.call(_request.callData);
         RevertPropagation._require(_success, _reason);
-        uint _balanceThis = _request.tokenTo.balanceOf(address(this));
-        require(_balanceThis >= _request.minAmountTo, 'W2W:Less than minimum received');
-        uint _userGetsAmount = _saveFee(_request.tokenTo, _balanceThis, _request.fee);
+        uint _exectionResult = _request.tokenTo.balanceOf(address(this)).sub(fees[_request.tokenTo]);
+        require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
+        uint _userGetsAmount = _saveFee(_request.tokenTo, _exectionResult, _request.fee);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount, 'W2W:');
         emit Copy(_request.user, _request.tokenFrom, _request.amountFrom, _request.tokenTo, _userGetsAmount);
@@ -188,9 +188,9 @@ contract Wallet2Wallet is AccessControl, Constants {
 
         (bool _success, bytes memory _reason) = _request.target.call{value: _request.amountFrom}(_request.callData);
         RevertPropagation._require(_success, _reason);
-        uint _balanceThis = _request.tokenTo.balanceOf(address(this));
-        require(_balanceThis >= _request.minAmountTo, 'W2W:Less than minimum received');
-        uint _userGetsAmount = _saveFee(_request.tokenTo, _balanceThis, _request.fee);
+        uint _exectionResult = _request.tokenTo.balanceOf(address(this)).sub(fees[_request.tokenTo]);
+        require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
+        uint _userGetsAmount = _saveFee(_request.tokenTo, _exectionResult, _request.fee);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount, 'W2W:');
         emit Copy(_request.user, ETH, _request.amountFrom, _request.tokenTo, _userGetsAmount);
@@ -202,9 +202,9 @@ contract Wallet2Wallet is AccessControl, Constants {
 
         (bool _success, bytes memory _reason) = _request.target.call(_request.callData);
         RevertPropagation._require(_success, _reason);
-        uint _balanceThis = address(this).balance;
-        require(_balanceThis >= _request.minAmountTo, 'W2W:Less than minimum received');
-        uint _userGetsAmount = _saveFee(ETH, _balanceThis, _request.fee);
+        uint _exectionResult = address(this).balance.sub(fees[ETH]);
+        require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
+        uint _userGetsAmount = _saveFee(ETH, _exectionResult, _request.fee);
         address payable _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _userGetsTo.transfer(_userGetsAmount);
         emit Copy(_request.user, _request.tokenFrom, _request.amountFrom, ETH, _userGetsAmount);
