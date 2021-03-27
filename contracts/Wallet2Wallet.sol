@@ -47,6 +47,7 @@ contract Wallet2Wallet is AccessControl, Constants {
         IERC20 tokenTo;
         uint minAmountTo;
         uint fee;
+        uint referralFee;
         bool copyToWalletOwner;
         uint txGasLimit;
         address target;
@@ -60,6 +61,7 @@ contract Wallet2Wallet is AccessControl, Constants {
         IERC20 tokenTo;
         uint minAmountTo;
         uint fee;
+        uint referralFee;
         bool copyToWalletOwner;
         uint txGasLimit;
         address payable target;
@@ -72,6 +74,7 @@ contract Wallet2Wallet is AccessControl, Constants {
         uint amountFrom;
         uint minAmountTo;
         uint fee;
+        uint referralFee;
         bool copyToWalletOwner;
         uint txGasLimit;
         address target;
@@ -80,6 +83,7 @@ contract Wallet2Wallet is AccessControl, Constants {
     }
 
     event Error(bytes _error);
+    event ReferralFee(IUserWallet _user, IERC20 _token, address _referrer, uint _amount);
     event Copy(IUserWallet _user, IERC20 _tokenFrom, uint _amountFrom, IERC20 _tokenTo, uint _amountTo);
 
     modifier onlyOwner() {
@@ -177,9 +181,14 @@ contract Wallet2Wallet is AccessControl, Constants {
         RevertPropagation._require(_success, _reason);
         uint _exectionResult = _request.tokenTo.balanceOf(address(this)).sub(fees[_request.tokenTo]);
         require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
-        uint _userGetsAmount = _saveFee(_request.tokenTo, _exectionResult, _request.fee);
+        (uint _userGetsAmount, uint _referrerGetsAmount, address _referrer) =
+            _saveFee(_request.tokenTo, _exectionResult, _request.fee, _request.referralFee, _request.user);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount, 'W2W:');
+        if (_referrerGetsAmount > 0) {
+            _request.tokenTo.safeTransfer(_referrer, _referrerGetsAmount, 'W2W:');
+            emit ReferralFee(_request.user, _request.tokenTo, _referrer, _referrerGetsAmount);
+        }
         emit Copy(_request.user, _request.tokenFrom, _request.amountFrom, _request.tokenTo, _userGetsAmount);
     }
 
@@ -190,10 +199,16 @@ contract Wallet2Wallet is AccessControl, Constants {
         RevertPropagation._require(_success, _reason);
         uint _exectionResult = _request.tokenTo.balanceOf(address(this)).sub(fees[_request.tokenTo]);
         require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
-        uint _userGetsAmount = _saveFee(_request.tokenTo, _exectionResult, _request.fee);
+        (uint _userGetsAmount, uint _referrerGetsAmount, address _referrer) =
+            _saveFee(_request.tokenTo, _exectionResult, _request.fee, _request.referralFee, _request.user);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount, 'W2W:');
+        if (_referrerGetsAmount > 0) {
+            _request.tokenTo.safeTransfer(_referrer, _referrerGetsAmount, 'W2W:');
+            emit ReferralFee(_request.user, _request.tokenTo, _referrer, _referrerGetsAmount);
+        }
         emit Copy(_request.user, ETH, _request.amountFrom, _request.tokenTo, _userGetsAmount);
+
     }
 
     function _executeTokensForETH(RequestTokensForETH memory _request) external onlyThis() {
@@ -204,21 +219,40 @@ contract Wallet2Wallet is AccessControl, Constants {
         RevertPropagation._require(_success, _reason);
         uint _exectionResult = address(this).balance.sub(fees[ETH]);
         require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
-        uint _userGetsAmount = _saveFee(ETH, _exectionResult, _request.fee);
+        (uint _userGetsAmount, uint _referrerGetsAmount, address _referrer) =
+            _saveFee(ETH, _exectionResult, _request.fee, _request.referralFee, _request.user);
         address payable _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _userGetsTo.transfer(_userGetsAmount);
+        if (_referrerGetsAmount > 0) {
+            if (payable(_referrer).send(_referrerGetsAmount)) {
+                emit ReferralFee(_request.user, ETH, _referrer, _referrerGetsAmount);
+            } else {
+                fees[ETH] = fees[ETH].add(_referrerGetsAmount);
+                emit Error('Referrer rejected ETH transfer');
+            }
+        }
         emit Copy(_request.user, _request.tokenFrom, _request.amountFrom, ETH, _userGetsAmount);
     }
 
-    function _saveFee(IERC20 _token, uint _amount, uint _feePercent) internal virtual returns(uint) {
+    function _saveFee(IERC20 _token, uint _amount, uint _feePercent, uint _referralFeePercent, IUserWallet _user)
+    internal virtual returns(uint, uint, address) {
         if (_feePercent == 0) {
-            return _amount;
+            return (_amount, 0, address(0));
         }
+        uint _referralFee = 0;
+        address _referrer = address(0);
         uint _fee = _amount.mul(_feePercent).divCeil(HUNDRED_PERCENT);
-        if (!FeeLogic.buybackWithUniswap(_token, _fee, buyBacker)) {
+        if (_referralFeePercent > 0) {
+            _referrer = _user.params(REFERRER).toAddress();
+            if (_referrer != address(0)) {
+                _referralFee = _fee.mul(_referralFeePercent) / HUNDRED_PERCENT;
+                _fee = _fee.sub(_referralFee);
+            }
+        }
+        if (_fee > 0 && !FeeLogic.buybackWithUniswap(_token, _fee, buyBacker)) {
             fees[_token] = fees[_token].add(_fee);
         }
-        return _amount.sub(_fee);
+        return (_amount.sub(_fee).sub(_referralFee), _referralFee, _referrer);
     }
 
     function _chargeFee(IUserWallet _user, uint _txGasLimit) internal {

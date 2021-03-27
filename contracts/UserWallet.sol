@@ -10,9 +10,6 @@ import './SafeERC20.sol';
 contract UserWallet is IUserWallet, Constants {
     using SafeERC20 for IERC20;
     using ParamsLib for *;
-    bytes32 constant W2W = 'W2W';
-    bytes32 constant OWNER = 'OWNER';
-    bytes32 constant REFERRER = 'REFERRER';
 
     mapping (bytes32 => bytes32) public override params;
 
