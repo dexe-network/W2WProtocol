@@ -5,6 +5,7 @@ pragma experimental ABIEncoderV2;
 import '@openzeppelin/contracts/access/AccessControl.sol';
 import '@openzeppelin/contracts/math/SafeMath.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import '@openzeppelin/contracts/utils/EnumerableSet.sol';
 import './Constants.sol';
 import './IUserWallet.sol';
 import './IBuyBacker.sol';
@@ -40,6 +41,8 @@ contract Wallet2Wallet is AccessControl, Constants {
     address payable public gasFeeCollector;
     mapping(IERC20 => uint) public fees;
 
+    EnumerableSet.AddressSet feeMiddleTokens;
+
     struct Request {
         IUserWallet user;
         IERC20 tokenFrom;
@@ -53,6 +56,8 @@ contract Wallet2Wallet is AccessControl, Constants {
         address target;
         address approveTarget;
         bytes callData;
+        address[] feeSwapPath;
+        uint feeOutMin;
     }
 
     struct RequestETHForTokens {
@@ -66,6 +71,8 @@ contract Wallet2Wallet is AccessControl, Constants {
         uint txGasLimit;
         address payable target;
         bytes callData;
+        address[] feeSwapPath;
+        uint feeOutMin;
     }
 
     struct RequestTokensForETH {
@@ -80,6 +87,8 @@ contract Wallet2Wallet is AccessControl, Constants {
         address target;
         address approveTarget;
         bytes callData;
+        address[] feeSwapPath;
+        uint feeOutMin;
     }
 
     event Error(bytes _error);
@@ -179,10 +188,10 @@ contract Wallet2Wallet is AccessControl, Constants {
 
         (bool _success, bytes memory _reason) = _request.target.call(_request.callData);
         RevertPropagation._require(_success, _reason);
-        uint _exectionResult = _request.tokenTo.balanceOf(address(this)).sub(fees[_request.tokenTo]);
-        require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
+        uint _executionResult = _request.tokenTo.balanceOf(address(this)).sub(fees[_request.tokenTo]);
+        require(_executionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
         (uint _userGetsAmount, uint _referrerGetsAmount, address _referrer) =
-            _saveFee(_request.tokenTo, _exectionResult, _request.fee, _request.referralFee, _request.user);
+            _saveFee(_request.tokenTo, _executionResult, _request.fee, _request.referralFee, _request.user, _request.feeSwapPath, _request.feeOutMin);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount, 'W2W:');
         if (_referrerGetsAmount > 0) {
@@ -197,10 +206,10 @@ contract Wallet2Wallet is AccessControl, Constants {
 
         (bool _success, bytes memory _reason) = _request.target.call{value: _request.amountFrom}(_request.callData);
         RevertPropagation._require(_success, _reason);
-        uint _exectionResult = _request.tokenTo.balanceOf(address(this)).sub(fees[_request.tokenTo]);
-        require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
+        uint _executionResult = _request.tokenTo.balanceOf(address(this)).sub(fees[_request.tokenTo]);
+        require(_executionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
         (uint _userGetsAmount, uint _referrerGetsAmount, address _referrer) =
-            _saveFee(_request.tokenTo, _exectionResult, _request.fee, _request.referralFee, _request.user);
+            _saveFee(_request.tokenTo, _executionResult, _request.fee, _request.referralFee, _request.user, _request.feeSwapPath, _request.feeOutMin);
         address _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _request.tokenTo.safeTransfer(_userGetsTo, _userGetsAmount, 'W2W:');
         if (_referrerGetsAmount > 0) {
@@ -217,10 +226,10 @@ contract Wallet2Wallet is AccessControl, Constants {
 
         (bool _success, bytes memory _reason) = _request.target.call(_request.callData);
         RevertPropagation._require(_success, _reason);
-        uint _exectionResult = address(this).balance.sub(fees[ETH]);
-        require(_exectionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
+        uint _executionResult = address(this).balance.sub(fees[ETH]);
+        require(_executionResult >= _request.minAmountTo, 'W2W:Less than minimum received');
         (uint _userGetsAmount, uint _referrerGetsAmount, address _referrer) =
-            _saveFee(ETH, _exectionResult, _request.fee, _request.referralFee, _request.user);
+            _saveFee(ETH, _executionResult, _request.fee, _request.referralFee, _request.user, _request.feeSwapPath, _request.feeOutMin);
         address payable _userGetsTo = _swapTo(_request.user, _request.copyToWalletOwner);
         _userGetsTo.transfer(_userGetsAmount);
         if (_referrerGetsAmount > 0) {
@@ -234,13 +243,11 @@ contract Wallet2Wallet is AccessControl, Constants {
         emit Copy(_request.user, _request.tokenFrom, _request.amountFrom, ETH, _userGetsAmount);
     }
 
-    function _saveFee(IERC20 _token, uint _amount, uint _feePercent, uint _referralFeePercent, IUserWallet _user)
-    internal virtual returns(uint, uint, address) {
+    function _saveFee(IERC20 _token, uint _amount, uint _feePercent, uint _referralFeePercent, IUserWallet _user, address[] memory _feeSwapPath, uint _feeOutMin)
+    internal virtual returns(uint, uint _referralFee, address _referrer) {
         if (_feePercent == 0) {
             return (_amount, 0, address(0));
         }
-        uint _referralFee = 0;
-        address _referrer = address(0);
         uint _fee = _amount.mul(_feePercent).divCeil(HUNDRED_PERCENT);
         if (_referralFeePercent > 0) {
             _referrer = _user.params(REFERRER).toAddress();
@@ -249,7 +256,7 @@ contract Wallet2Wallet is AccessControl, Constants {
                 _fee = _fee.sub(_referralFee);
             }
         }
-        if (_fee > 0 && !FeeLogic.buybackWithUniswap(_token, _fee, buyBacker)) {
+        if (_fee > 0 && !FeeLogic.buybackWithUniswap(_token, _fee, _feeSwapPath, _feeOutMin, buyBacker)) {
             fees[_token] = fees[_token].add(_fee);
         }
         return (_amount.sub(_fee).sub(_referralFee), _referralFee, _referrer);
